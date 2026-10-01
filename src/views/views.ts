@@ -13,6 +13,7 @@ import { buildChoose, buildPartnerFile, buildUpload, buildUploading } from "./up
 import { renderIntegrationCard, type IntegrationCardHooks } from "./integrations";
 import { buildSchedule } from "./schedule";
 import { buildCoupleChat } from "./coupleChat";
+import { buildRemoteControl } from "./remoteControl";
 import { Bridge } from "../core/bridge";
 
 export interface ViewActions {
@@ -102,6 +103,16 @@ export function buildHeader(actions: ViewActions): ViewHost {
     unreadBadge
   );
 
+  const tabRemote = h(
+    "button",
+    {
+      class: "tab",
+      title: "Remote Co-Pilot (Mochi Eye)",
+      onclick: () => go("remote-control"),
+    },
+    svg(ICONS.monitor, 13)
+  );
+
   const tabSched = h("button", { class: "tab", title: "Schedule", onclick: () => go("schedule") }, svg(ICONS.calendar, 13));
   const tabDrop = h("button", { class: "tab", title: "Drop", onclick: () => go("upload") }, svg(ICONS.plus, 13));
 
@@ -117,7 +128,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
   const el = h(
     "div",
     { id: "header" },
-    h("div", { class: "tabs" }, tabHome, tabChat, tabCouple, tabSched, tabDrop),
+    h("div", { class: "tabs" }, tabHome, tabChat, tabCouple, tabRemote, tabSched, tabDrop),
     h("div", { class: "header-actions" }, micBtn, gearBtn, soundBtn),
   );
 
@@ -128,12 +139,22 @@ export function buildHeader(actions: ViewActions): ViewHost {
       tabHome.classList.toggle("on", v === "overview" || v === "empty");
       tabChat.classList.toggle("on", v === "prompt");
       tabCouple.classList.toggle("on", v === "couple-chat");
+      tabRemote.classList.toggle("on", v === "remote-control");
       const isMe = (State.settings.userRole || "me") === "me";
       const rawPartner = isMe ? (State.settings.partnerName || "Ayzil") : (State.settings.userName || "Badsha");
       const partnerName = (rawPartner.charAt(0).toUpperCase() + rawPartner.slice(1)) || "Partner";
       tabCouple.title = `Chat with ${partnerName}`;
+      tabRemote.title = `Remote Co-Pilot — ${partnerName} 🖥️`;
       tabSched.classList.toggle("on", v === "schedule");
       tabDrop.classList.toggle("on", v === "upload");
+
+      if (State.remoteAccessStatus === "incoming_request") {
+        tabRemote.style.color = "#3b82f6";
+      } else if (State.remoteAccessStatus === "active_host" || State.remoteAccessStatus === "active_viewer") {
+        tabRemote.style.color = "#22c55e";
+      } else {
+        tabRemote.style.color = "";
+      }
 
       if (State.unreadPartnerChatCount > 0) {
         unreadBadge.style.display = "inline-block";
@@ -669,6 +690,7 @@ export function buildViews(
   map.set("choose", buildChoose(actions));
   map.set("partner-file", buildPartnerFile(actions));
   map.set("couple-chat", buildCoupleChat(actions));
+  map.set("remote-control", buildRemoteControl(actions));
   // Not in the Windows v1: sending a file by email, window attach + web result.
   map.set("mail", buildPlaceholder("Sending by email isn't in this version.", ""));
   map.set("searching", buildPlaceholder("Claude is searching…", ""));

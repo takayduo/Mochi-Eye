@@ -1,7 +1,7 @@
 {
-  "name": "coucou-creator",
+  "name": "mochi-eye",
   "version": "1.0.0",
-  "description": "Creator Couple Desktop Companion with AI, Schedule & File Eating",
+  "description": "Mochi Eye — AI Desktop Companion with Remote PC Co-Pilot Access",
   "main": "electron/main.js",
   "scripts": {
     "dev": "vite",

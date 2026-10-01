@@ -215,6 +215,11 @@ class AppState {
   partnerChatMessages: PartnerChatMessage[] = [];
   unreadPartnerChatCount = 0;
 
+  // Remote Access (Mochi Eye Co-Pilot)
+  remoteAccessStatus: "idle" | "requesting" | "incoming_request" | "active_host" | "active_viewer" = "idle";
+  remoteRequesterName = "";
+  remoteActivePartner = "";
+
   lastActivity = performance.now();
 
   settings: Settings = { ...DEFAULT_SETTINGS };

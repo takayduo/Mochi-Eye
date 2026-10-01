@@ -1,12 +1,18 @@
-# 🍡 Mochi — AI Desktop Companion for Creator Couples
+# 🍡 Mochi Eye — AI Desktop Companion with Remote PC Co-Pilot
 
 > **A lively, interactive desktop companion overlay that lives at the top of your screen.**
-> Featuring authentic 2D squircle physics, eye-following animations, live peer-to-peer partner chat, daily creator schedule, AI voice assistance, and file eating.
+> Featuring authentic 2D squircle physics, eye-following animations, live peer-to-peer partner chat, daily creator schedule, AI voice assistance, file eating, and **safe, high-speed Remote Desktop Co-Pilot control**.
 
 ---
 
 ## ✨ Features
 
+- 🖥️ **Remote Desktop Co-Pilot (Mochi Eye)**:
+  - **Mutual Permission**: Either partner can click *"Request Remote Access"*. The other receives an interactive prompt to Accept or Decline.
+  - **Full Control**: Smooth 60 FPS remote screen view, mouse movement, dragging, clicking, and keyboard shortcuts.
+  - **GPU-Safe (Zero Virtual Drivers)**: Uses Microsoft DirectX Desktop Duplication (DXGI) without any intrusive kernel or virtual display drivers (unlike Parsec, which damages GPUs).
+  - **Fullscreen Viewer Window**: Mochi's top notch stays small and pretty on your main screen, while the remote partner's screen opens in a dedicated window that can be toggled Fullscreen with 1 click (<kbd>F11</kbd>).
+  - **1-Click Disconnect**: Both parties have immediate control to end the remote session at any second.
 - 🍡 **Authentic Canvas 2D Physics**: Exact squircle superellipse math, cursor-following pupils, eye blinks, breathing springs, particle systems (hearts, stars, sweat drops), and emotional states (`idle`, `thinking`, `happy`, `love`, `dizzy`, `annoyed`, `sleeping`, `error`).
 - 💬 **Live Partner Chat (Badsha 👤 ⟷ Ayzil 💖)**:
   - Sub-50ms real-time peer-to-peer messaging via Supabase Realtime broadcast.
@@ -37,22 +43,20 @@
 
 ## 📋 Required System & Software Prerequisites
 
-Before installing Mochi, make sure you have:
+Before installing Mochi Eye, make sure you have:
 
 1. **Operating System**:
-   - **Windows 10 / 11** (Recommended for full native sound, SAPI speech, and auto-start integration).
+   - **Windows 10 / 11** (Recommended for native sound, SAPI speech, and auto-start integration).
    - Also runs on macOS and Linux with standard Electron support.
 2. **Node.js**:
    - Version **18.0.0** or higher (LTS version 20+ recommended).
    - Download from [nodejs.org](https://nodejs.org/) (check with `node -v`).
-3. **Git**:
-   - Download from [git-scm.com](https://git-scm.com/) (check with `git --version`).
 
 ---
 
 ## 🚀 Easy Installation Guide (Works on Any PC — Even Brand New!)
 
-You do **not** need Git or programming experience to run Mochi. Choose whichever method is easiest for you:
+You do **not** need Git or programming experience to run Mochi Eye. Choose whichever method is easiest for you:
 
 ---
 
@@ -62,7 +66,7 @@ Works on any fresh Windows 10/11 PC or Windows Sandbox (even with **no Git** and
 1. Press `Win + X` and click **Terminal** or **Windows PowerShell**.
 2. Paste this single command and press `Enter`:
    ```powershell
-   irm https://raw.githubusercontent.com/takayduo/Mochi/main/install.ps1 | iex
+   irm https://raw.githubusercontent.com/takayduo/Mochi-Eye/main/install.ps1 | iex
    ```
 3. That's it! The script will:
    - Auto-install Node.js if missing.

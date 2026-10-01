@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mochi Eye — Remote Desktop</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      background: #09090b;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #f4f4f5;
+    }
+    #viewport {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+      cursor: crosshair;
+    }
+    #remoteVideo {
+      max-width: 100%;
+      max-height: 100%;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      pointer-events: auto;
+    }
+    /* Floating top toolbar */
+    #toolbar {
+      position: absolute;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(18, 18, 24, 0.85);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 30px;
+      padding: 6px 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      z-index: 1000;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+    #toolbar.hidden {
+      opacity: 0;
+      transform: translate(-50%, -20px);
+      pointer-events: none;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #fff;
+    }
+    .badge-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 8px #22c55e;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.15); }
+    }
+    .btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #f4f4f5;
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 16px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s ease;
+    }
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.16);
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.2);
+      border-color: rgba(239, 68, 68, 0.4);
+      color: #fca5a5;
+    }
+    .btn-danger:hover {
+      background: rgba(239, 68, 68, 0.35);
+      color: #fff;
+    }
+    #loadingOverlay {
+      position: absolute;
+      inset: 0;
+      background: #09090b;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      z-index: 500;
+      transition: opacity 0.4s ease;
+    }
+    #loadingOverlay.done {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .spinner {
+      width: 42px;
+      height: 42px;
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top-color: #f43f5e;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div id="loadingOverlay">
+    <div class="spinner"></div>
+    <div id="loadingText" style="font-size: 13.5px; font-weight: 500; color: #a1a1aa;">
+      Connecting to partner's desktop...
+    </div>
+  </div>
+
+  <div id="toolbar">
+    <div class="badge">
+      <span class="badge-dot"></span>
+      <span id="partnerTitle">Mochi Eye — Controlling Partner's PC</span>
+    </div>
+    <button class="btn" id="btnFullscreen" title="Toggle Fullscreen (F11)">⛶ Fullscreen</button>
+    <button class="btn btn-danger" id="btnDisconnect" title="End remote access">🛑 End Session</button>
+  </div>
+
+  <div id="viewport">
+    <video id="remoteVideo" autoplay playsinline></video>
+  </div>
+
+  <script>
+    const video = document.getElementById("remoteVideo");
+    const toolbar = document.getElementById("toolbar");
+    const loadingOverlay = document.getElementById("loadingOverlay");
+    const loadingText = document.getElementById("loadingText");
+    const partnerTitle = document.getElementById("partnerTitle");
+    const btnFullscreen = document.getElementById("btnFullscreen");
+    const btnDisconnect = document.getElementById("btnDisconnect");
+
+    let peer = null;
+    let dataChannel = null;
+    let partnerName = "Partner";
+    let remoteResolution = { width: 1920, height: 1080 };
+    let hideToolbarTimer = null;
+
+    // Auto-hide toolbar on mouse inactivity
+    function pingToolbar() {
+      toolbar.classList.remove("hidden");
+      if (hideToolbarTimer) clearTimeout(hideToolbarTimer);
+      hideToolbarTimer = setTimeout(() => {
+        toolbar.classList.add("hidden");
+      }, 3000);
+    }
+    window.addEventListener("mousemove", pingToolbar);
+    toolbar.addEventListener("mouseenter", () => {
+      if (hideToolbarTimer) clearTimeout(hideToolbarTimer);
+      toolbar.classList.remove("hidden");
+    });
+
+    btnFullscreen.addEventListener("click", () => {
+      window.viewerAPI.toggleFullscreen();
+    });
+
+    btnDisconnect.addEventListener("click", () => {
+      window.viewerAPI.endSession();
+    });
+
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "F11") {
+        e.preventDefault();
+        window.viewerAPI.toggleFullscreen();
+      }
+    });
+
+    // ── Input Event Capture & Forwarding ──────────────────────────────────────
+    function sendCommand(cmd) {
+      if (dataChannel && dataChannel.readyState === "open") {
+        dataChannel.send(cmd);
+      } else {
+        window.viewerAPI.sendInput(cmd);
+      }
+    }
+
+    function getNormalizedCoords(e) {
+      const rect = video.getBoundingClientRect();
+      const videoWidth = video.videoWidth || remoteResolution.width;
+      const videoHeight = video.videoHeight || remoteResolution.height;
+
+      // Handle aspect-ratio letterboxing
+      const rectRatio = rect.width / rect.height;
+      const videoRatio = videoWidth / videoHeight;
+
+      let renderWidth = rect.width;
+      let renderHeight = rect.height;
+      let offsetX = 0;
+      let offsetY = 0;
+
+      if (rectRatio > videoRatio) {
+        renderWidth = rect.height * videoRatio;
+        offsetX = (rect.width - renderWidth) / 2;
+      } else {
+        renderHeight = rect.width / videoRatio;
+        offsetY = (rect.height - renderHeight) / 2;
+      }
+
+      const clientX = e.clientX - rect.left - offsetX;
+      const clientY = e.clientY - rect.top - offsetY;
+
+      const normX = Math.max(0, Math.min(1, clientX / renderWidth));
+      const normY = Math.max(0, Math.min(1, clientY / renderHeight));
+
+      const targetX = Math.round(normX * remoteResolution.width);
+      const targetY = Math.round(normY * remoteResolution.height);
+
+      return { x: targetX, y: targetY };
+    }
+
+    let lastMoveTime = 0;
+    video.addEventListener("mousemove", (e) => {
+      const now = performance.now();
+      if (now - lastMoveTime < 16) return; // Cap at 60 FPS
+      lastMoveTime = now;
+      const pos = getNormalizedCoords(e);
+      sendCommand(`m ${pos.x} ${pos.y}`);
+    });
+
+    video.addEventListener("mousedown", (e) => {
+      const pos = getNormalizedCoords(e);
+      sendCommand(`m ${pos.x} ${pos.y}`);
+      const btn = e.button === 0 ? 1 : e.button === 2 ? 2 : 3;
+      sendCommand(`d ${btn}`);
+    });
+
+    video.addEventListener("mouseup", (e) => {
+      const btn = e.button === 0 ? 1 : e.button === 2 ? 2 : 3;
+      sendCommand(`u ${btn}`);
+    });
+
+    video.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const delta = Math.round(-e.deltaY);
+      sendCommand(`w ${delta}`);
+    }, { passive: false });
+
+    video.addEventListener("contextmenu", (e) => {
+      e.preventDefault(); // Send native right click to remote without browser menu
+    });
+
+    window.addEventListener("keydown", (e) => {
+      // Don't intercept F11 (fullscreen toggle) or Escape
+      if (e.key === "F11") return;
+      if (e.repeat) return;
+      sendCommand(`k ${e.keyCode} 1`);
+    });
+
+    window.addEventListener("keyup", (e) => {
+      if (e.key === "F11") return;
+      sendCommand(`k ${e.keyCode} 0`);
+    });
+
+    // ── WebRTC Receiver Setup ──────────────────────────────────────────────────
+    async function initWebRTC() {
+      try {
+        const info = await window.viewerAPI.getPartnerInfo();
+        if (info && info.partnerName) {
+          partnerName = info.partnerName;
+          partnerTitle.textContent = `Mochi Eye — Controlling ${partnerName}'s PC`;
+          loadingText.textContent = `Connecting to ${partnerName}'s desktop...`;
+        }
+        if (info && info.remoteResolution) {
+          remoteResolution = info.remoteResolution;
+        }
+
+        peer = new RTCPeerConnection({
+          iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+            { urls: "stun:stun2.l.google.com:19302" },
+          ],
+        });
+
+        peer.ondatachannel = (e) => {
+          dataChannel = e.channel;
+          console.log("[RemoteViewer] DataChannel connected:", dataChannel.label);
+        };
+
+        peer.ontrack = (e) => {
+          console.log("[RemoteViewer] Received remote track:", e.streams);
+          if (e.streams && e.streams[0]) {
+            video.srcObject = e.streams[0];
+            loadingOverlay.classList.add("done");
+            pingToolbar();
+          }
+        };
+
+        peer.onicecandidate = (e) => {
+          if (e.candidate) {
+            window.viewerAPI.sendSignal({ type: "candidate", candidate: e.candidate });
+          }
+        };
+
+        // Listen for signals from main process
+        window.viewerAPI.on("viewer-signal", async (signal) => {
+          if (!peer || !signal) return;
+          try {
+            if (signal.type === "offer") {
+              await peer.setRemoteDescription(new RTCSessionDescription(signal));
+              const answer = await peer.createAnswer();
+              await peer.setLocalDescription(answer);
+              window.viewerAPI.sendSignal({ type: "answer", sdp: answer.sdp });
+            } else if (signal.type === "candidate") {
+              await peer.addIceCandidate(new RTCIceCandidate(signal.candidate));
+            } else if (signal.type === "resolution") {
+              remoteResolution = signal.resolution;
+            }
+          } catch (sigErr) {
+            console.warn("[RemoteViewer] Signal handling error:", sigErr);
+          }
+        });
+
+        // Request initial offer from host
+        window.viewerAPI.sendSignal({ type: "ready" });
+      } catch (err) {
+        console.error("[RemoteViewer] Init error:", err);
+        loadingText.textContent = "Connection failed: " + err.message;
+      }
+    }
+
+    initWebRTC();
+  </script>
+</body>
+</html>

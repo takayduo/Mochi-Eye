@@ -69,16 +69,16 @@ if (Test-Path "$env:ProgramFiles\nodejs\node.exe") {
 
 Write-Host "      ✓ Node.js is ready: $(& $nodeExe -v)" -ForegroundColor Green
 
-# 2. Download Mochi from GitHub
-Write-Host "[2/5] Downloading Mochi from GitHub..." -ForegroundColor Yellow
-$installFolder = "$env:USERPROFILE\Mochi"
+# 2. Download Mochi Eye from GitHub
+Write-Host "[2/5] Downloading Mochi Eye from GitHub..." -ForegroundColor Yellow
+$installFolder = "$env:USERPROFILE\Mochi-Eye"
 if (-not (Test-Path $installFolder)) {
     New-Item -ItemType Directory -Path $installFolder -Force | Out-Null
 }
 
-$zipUrl = "https://github.com/takayduo/Mochi/archive/refs/heads/main.zip"
-$zipFile = "$env:TEMP\Mochi_Latest.zip"
-$extractTemp = "$env:TEMP\Mochi_Extract"
+$zipUrl = "https://github.com/takayduo/Mochi-Eye/archive/refs/heads/main.zip"
+$zipFile = "$env:TEMP\MochiEye_Latest.zip"
+$extractTemp = "$env:TEMP\MochiEye_Extract"
 
 Download-Fast $zipUrl $zipFile
 
@@ -88,7 +88,7 @@ if (Test-Path $extractTemp) {
 Expand-Archive -Path $zipFile -DestinationPath $extractTemp -Force
 
 # Copy files into target folder
-Copy-Item -Path "$extractTemp\Mochi-main\*" -Destination $installFolder -Recurse -Force
+Copy-Item -Path "$extractTemp\Mochi-Eye-main\*" -Destination $installFolder -Recurse -Force
 Remove-Item -Recurse -Force $zipFile, $extractTemp
 
 Write-Host "      ✓ Downloaded into $installFolder" -ForegroundColor Green
@@ -139,7 +139,7 @@ Write-Host "[4/5] Building application bundle..." -ForegroundColor Yellow
 # 5. Create Desktop Shortcut (points directly to native electron.exe - no .vbs!)
 Write-Host "[5/5] Creating Desktop Shortcut..." -ForegroundColor Yellow
 $desktopPath = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::Desktop)
-$shortcutPath = Join-Path $desktopPath "Mochi.lnk"
+$shortcutPath = Join-Path $desktopPath "Mochi Eye.lnk"
 $electronExe = Join-Path $installFolder "node_modules\electron\dist\electron.exe"
 
 $wsh = New-Object -ComObject WScript.Shell
@@ -158,7 +158,7 @@ $iconFile = Join-Path $installFolder "public\icons\icon.ico"
 if (Test-Path $iconFile) {
     $shortcut.IconLocation = "$iconFile,0"
 }
-$shortcut.Description = "Mochi — Creator Desktop Companion"
+$shortcut.Description = "Mochi Eye — AI Desktop Companion with Remote Co-Pilot"
 $shortcut.Save()
 
 Write-Host "      ✓ Desktop shortcut created: $shortcutPath" -ForegroundColor Green

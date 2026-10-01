@@ -46,6 +46,12 @@ declare global {
       sendChatMessage?(text: string | { text: string; isAiGenerated?: boolean }, isAiGenerated?: boolean): Promise<PartnerChatMessage>;
       markChatRead?(): Promise<boolean>;
 
+      requestRemoteAccess?(): Promise<boolean>;
+      respondRemoteAccess?(accepted: boolean): Promise<boolean>;
+      sendRemoteSignal?(signal: any): Promise<boolean>;
+      endRemoteAccess?(): Promise<boolean>;
+      getPrimaryScreenSource?(): Promise<{ id: string; name: string; width: number; height: number } | null>;
+
       secretSet(key: string, val: string): Promise<boolean>;
       secretGet(key: string): Promise<string>;
       secretClear(key: string): Promise<boolean>;
@@ -331,6 +337,32 @@ export const Bridge = {
   markChatRead: async (): Promise<boolean> => {
     if (window.electronAPI?.markChatRead) return await window.electronAPI.markChatRead();
     return false;
+  },
+
+  // ── Remote Access (Mochi Eye Co-Pilot) ───────────────────────────────────────
+  requestRemoteAccess: async (): Promise<boolean> => {
+    if (window.electronAPI?.requestRemoteAccess) return await window.electronAPI.requestRemoteAccess();
+    return false;
+  },
+
+  respondRemoteAccess: async (accepted: boolean): Promise<boolean> => {
+    if (window.electronAPI?.respondRemoteAccess) return await window.electronAPI.respondRemoteAccess(accepted);
+    return false;
+  },
+
+  sendRemoteSignal: async (signal: any): Promise<boolean> => {
+    if (window.electronAPI?.sendRemoteSignal) return await window.electronAPI.sendRemoteSignal(signal);
+    return false;
+  },
+
+  endRemoteAccess: async (): Promise<boolean> => {
+    if (window.electronAPI?.endRemoteAccess) return await window.electronAPI.endRemoteAccess();
+    return false;
+  },
+
+  getPrimaryScreenSource: async (): Promise<{ id: string; name: string; width: number; height: number } | null> => {
+    if (window.electronAPI?.getPrimaryScreenSource) return await window.electronAPI.getPrimaryScreenSource();
+    return null;
   },
 
   // ── Secrets & Keys ────────────────────────────────────────────────────────

@@ -24,7 +24,8 @@ export type IslandViewName =
   | "settings"
   | "greeting"
   | "partner-file"
-  | "couple-chat";
+  | "couple-chat"
+  | "remote-control";
 
 export type BotStateName =
   | "idle"
@@ -90,6 +91,7 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   settings: { height: 188, botX: 54, botY: null, botDiameter: 46, agentMode: "none" },
   greeting: { height: 150, botX: 320, botY: 90, botDiameter: 0, agentMode: "none" },
   "couple-chat": { height: 280, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
+  "remote-control": { height: 260, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
 };
 
 // The upload views above are only the fallback geometry. Once a file is actually
@@ -118,6 +120,8 @@ export function islandSize(
         ? chatPromptHeight(chatCount)
         : view === "couple-chat"
         ? 280
+        : view === "remote-control"
+        ? 260
         : (VIEW_LAYOUTS[view]?.height ?? 160);
       return { w: EXPANDED_W, h };
     }

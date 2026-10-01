@@ -53,6 +53,7 @@ function initSupabase({
   onFileShared,
   onScheduleUpdated,
   onPresenceSync,
+  onRemoteAccess,
 }) {
   if (!url || !key) return null;
 
@@ -124,6 +125,18 @@ function initSupabase({
           onChatMessage(payload);
         } catch (e) {
           console.error("[Supabase Realtime] onChatMessage error:", e);
+        }
+      }
+    });
+
+    // 5. Broadcast: Remote Desktop Access (Mochi Eye)
+    realtimeChannel.on("broadcast", { event: "remote_access" }, ({ payload }) => {
+      console.log("[Supabase Realtime] Received remote_access event:", payload?.action, "from:", payload?.sender);
+      if (typeof onRemoteAccess === "function" && payload) {
+        try {
+          onRemoteAccess(payload);
+        } catch (e) {
+          console.error("[Supabase Realtime] onRemoteAccess error:", e);
         }
       }
     });
@@ -233,6 +246,26 @@ async function broadcastChatMessage(payload) {
     console.warn("[Supabase Realtime] Broadcast chat error:", err);
     return false;
   }
+/**
+ * Broadcasts remote desktop co-pilot signals to the partner's PC (Mochi Eye).
+ */
+async function broadcastRemoteAccess(payload) {
+  if (!realtimeChannel) return false;
+  try {
+    const res = await realtimeChannel.send({
+      type: "broadcast",
+      event: "remote_access",
+      payload: {
+        ...payload,
+        timestamp: Date.now(),
+      },
+    });
+    console.log("[Supabase Realtime] Broadcast remote_access result:", res);
+    return res === "ok";
+  } catch (err) {
+    console.warn("[Supabase Realtime] Broadcast remote_access error:", err);
+    return false;
+  }
 }
 
 module.exports = {
@@ -242,4 +275,5 @@ module.exports = {
   broadcastFileShared,
   broadcastScheduleUpdate,
   broadcastChatMessage,
+  broadcastRemoteAccess,
 };

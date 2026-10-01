@@ -7,6 +7,7 @@ import { State, type Settings } from "./core/state";
 import { Island } from "./island/island";
 import { registerHookHandlers } from "./island/hooks";
 import { registerIntegrationHandlers, refreshConfigured } from "./island/integrations";
+import { stopHostScreenSharing, handleHostSignal } from "./remote/hostStream";
 
 async function main() {
   const root = document.getElementById("root");
@@ -83,6 +84,43 @@ async function main() {
     State.unreadPartnerChatCount = 0;
     void Bridge.markChatRead();
     State.notify();
+  });
+
+  // ── Remote Access (Mochi Eye Co-Pilot) ─────────────────────────────────────
+  await onEvent<{ sender: string }>("remote-access-requested", (payload) => {
+    Sound.play("love");
+    State.triggerEmote("surprised");
+    State.remoteAccessStatus = "incoming_request";
+    State.remoteRequesterName = payload?.sender || "Partner";
+    island.reveal();
+    island.setView("remote-control");
+    State.notify();
+  });
+
+  await onEvent<{ sender: string; accepted: boolean }>("remote-access-accepted", (payload) => {
+    Sound.play("done");
+    State.triggerEmote("happy");
+    State.remoteAccessStatus = "active_viewer";
+    State.remoteActivePartner = payload?.sender || "Partner";
+    State.notify();
+  });
+
+  await onEvent<{ sender: string }>("remote-access-declined", () => {
+    Sound.play("blip");
+    State.remoteAccessStatus = "idle";
+    island.setView(State.defaultView());
+    State.notify();
+  });
+
+  await onEvent("remote-access-ended", () => {
+    Sound.play("close");
+    stopHostScreenSharing();
+    State.remoteAccessStatus = "idle";
+    State.notify();
+  });
+
+  await onEvent<any>("host-signal", async (signal) => {
+    await handleHostSignal(signal);
   });
 
   await onEvent<{ name: string; size: string; sender: string; path: string }>("file-received", (info) => {

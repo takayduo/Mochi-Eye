@@ -68,6 +68,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   markChatRead: () => ipcRenderer.invoke("mark-chat-read"),
 
+  // Remote Access (Mochi Eye Co-Pilot)
+  requestRemoteAccess: () => ipcRenderer.invoke("request-remote-access"),
+  respondRemoteAccess: (accepted) => ipcRenderer.invoke("respond-remote-access", accepted),
+  sendRemoteSignal: (signal) => ipcRenderer.invoke("send-remote-signal", signal),
+  endRemoteAccess: () => ipcRenderer.invoke("end-remote-access"),
+  getPrimaryScreenSource: () => ipcRenderer.invoke("get-primary-screen-source"),
+
   // Events from Main Process
   on: (channel, callback) => {
     const validChannels = [
@@ -83,6 +90,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "screen-changed",
       "mouse-enter",
       "mouse-leave",
+      "remote-access-requested",
+      "remote-access-accepted",
+      "remote-access-declined",
+      "remote-access-ended",
+      "host-signal",
     ];
     if (validChannels.includes(channel)) {
       const handler = (_event, ...args) => callback(...args);

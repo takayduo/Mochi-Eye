@@ -18,7 +18,18 @@ const {
   broadcastFileShared,
   broadcastScheduleUpdate,
   broadcastChatMessage,
+  broadcastRemoteAccess,
 } = require("./supabase");
+
+const {
+  startInputInjector,
+  injectInput,
+  stopInputInjector,
+  getPrimaryScreenSource,
+  createRemoteViewerWindow,
+  getRemoteViewerWindow,
+  closeRemoteViewerWindow,
+} = require("./remoteAccess");
 
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -402,6 +413,63 @@ function startSupabaseSync() {
       console.log(`[Supabase Sync] Partner online status: ${partnerOnline}`);
       if (overlayWin && !overlayWin.isDestroyed()) {
         overlayWin.webContents.send("partner-presence", { online: partnerOnline, partnerName: partnerUserName });
+      }
+    },
+    onRemoteAccess: (payload) => {
+      console.log("[Supabase Sync] Incoming remote_access:", payload?.action, "from:", payload?.sender);
+      if (!payload || !payload.action) return;
+
+      const action = payload.action;
+
+      if (action === "request") {
+        if (overlayWin && !overlayWin.isDestroyed()) {
+          overlayWin.webContents.send("remote-access-requested", payload);
+        }
+      } else if (action === "response") {
+        if (payload.accepted) {
+          if (overlayWin && !overlayWin.isDestroyed()) {
+            overlayWin.webContents.send("remote-access-accepted", payload);
+          }
+          createRemoteViewerWindow({
+            partnerName: payload.sender || partnerUserName,
+            onViewerReady: () => {
+              const viewer = getRemoteViewerWindow();
+              if (viewer) {
+                viewer.webContents.send("viewer-partner-info", {
+                  partnerName: payload.sender || partnerUserName,
+                  remoteResolution: payload.resolution || { width: 1920, height: 1080 },
+                });
+              }
+            },
+            onViewerClosed: () => {
+              broadcastRemoteAccess({ action: "end", sender: currentUserName });
+              if (overlayWin && !overlayWin.isDestroyed()) {
+                overlayWin.webContents.send("remote-access-ended");
+              }
+            },
+          });
+        } else {
+          if (overlayWin && !overlayWin.isDestroyed()) {
+            overlayWin.webContents.send("remote-access-declined", payload);
+          }
+        }
+      } else if (action === "signal") {
+        const viewer = getRemoteViewerWindow();
+        if (viewer) {
+          viewer.webContents.send("viewer-signal", payload.signal);
+        } else if (overlayWin && !overlayWin.isDestroyed()) {
+          overlayWin.webContents.send("host-signal", payload.signal);
+        }
+      } else if (action === "input") {
+        if (payload.cmd) {
+          injectInput(payload.cmd);
+        }
+      } else if (action === "end") {
+        closeRemoteViewerWindow();
+        stopInputInjector();
+        if (overlayWin && !overlayWin.isDestroyed()) {
+          overlayWin.webContents.send("remote-access-ended");
+        }
       }
     },
   });
@@ -1421,6 +1489,93 @@ ipcMain.handle("mark-chat-read", () => {
     saveChatHistory(history);
   }
   return true;
+});
+
+// ── Remote Access (Mochi Eye Co-Pilot) ───────────────────────────────────────
+ipcMain.handle("request-remote-access", async () => {
+  const isMe = (activeSettings.userRole || "me") === "me";
+  const rawMe = isMe ? (activeSettings.userName || "Badsha") : (activeSettings.partnerName || "Ayzil");
+  const currentUserName = rawMe.charAt(0).toUpperCase() + rawMe.slice(1);
+  return await broadcastRemoteAccess({ action: "request", sender: currentUserName });
+});
+
+ipcMain.handle("respond-remote-access", async (_event, accepted) => {
+  const isMe = (activeSettings.userRole || "me") === "me";
+  const rawMe = isMe ? (activeSettings.userName || "Badsha") : (activeSettings.partnerName || "Ayzil");
+  const currentUserName = rawMe.charAt(0).toUpperCase() + rawMe.slice(1);
+
+  if (accepted) {
+    startInputInjector();
+    const primary = screen.getPrimaryDisplay();
+    return await broadcastRemoteAccess({
+      action: "response",
+      accepted: true,
+      sender: currentUserName,
+      resolution: { width: primary.bounds.width, height: primary.bounds.height },
+    });
+  } else {
+    return await broadcastRemoteAccess({
+      action: "response",
+      accepted: false,
+      sender: currentUserName,
+    });
+  }
+});
+
+ipcMain.handle("send-remote-signal", async (_event, signal) => {
+  return await broadcastRemoteAccess({ action: "signal", signal });
+});
+
+ipcMain.handle("end-remote-access", async () => {
+  closeRemoteViewerWindow();
+  stopInputInjector();
+  return await broadcastRemoteAccess({ action: "end" });
+});
+
+ipcMain.handle("get-primary-screen-source", async () => {
+  return await getPrimaryScreenSource();
+});
+
+ipcMain.handle("inject-remote-input", (_event, cmd) => {
+  if (cmd) injectInput(cmd);
+  return true;
+});
+
+// Viewer Window IPC handlers
+ipcMain.handle("viewer-get-partner-info", () => {
+  const isMe = (activeSettings.userRole || "me") === "me";
+  const rawPartner = isMe ? (activeSettings.partnerName || "Ayzil") : (activeSettings.userName || "Badsha");
+  const partnerUserName = rawPartner.charAt(0).toUpperCase() + rawPartner.slice(1);
+  const primary = screen.getPrimaryDisplay();
+  return {
+    partnerName: partnerUserName,
+    remoteResolution: { width: primary.bounds.width, height: primary.bounds.height },
+  };
+});
+
+ipcMain.handle("viewer-send-signal", async (_event, signal) => {
+  return await broadcastRemoteAccess({ action: "signal", signal });
+});
+
+ipcMain.handle("viewer-send-input", async (_event, cmd) => {
+  return await broadcastRemoteAccess({ action: "input", cmd });
+});
+
+ipcMain.handle("viewer-toggle-fullscreen", () => {
+  const viewer = getRemoteViewerWindow();
+  if (viewer) {
+    viewer.setFullScreen(!viewer.isFullScreen());
+  }
+  return true;
+});
+
+ipcMain.handle("viewer-end-session", async () => {
+  closeRemoteViewerWindow();
+  stopInputInjector();
+  const isMe = (activeSettings.userRole || "me") === "me";
+  const rawMe = isMe ? (activeSettings.userName || "Badsha") : (activeSettings.partnerName || "Ayzil");
+  const currentUserName = rawMe.charAt(0).toUpperCase() + rawMe.slice(1);
+  return await broadcastRemoteAccess({ action: "end", sender: currentUserName });
 });
 
 ipcMain.handle("set-collapsed", (_event, collapsed) => {
