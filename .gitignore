@@ -10,6 +10,7 @@ coucou_ref/
 
 # Logs
 *.log
+electron_log.txt
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

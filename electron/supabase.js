@@ -246,6 +246,8 @@ async function broadcastChatMessage(payload) {
     console.warn("[Supabase Realtime] Broadcast chat error:", err);
     return false;
   }
+}
+
 /**
  * Broadcasts remote desktop co-pilot signals to the partner's PC (Mochi Eye).
  */
