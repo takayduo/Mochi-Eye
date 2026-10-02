@@ -53,6 +53,15 @@ declare global {
       getPrimaryScreenSource?(): Promise<{ id: string; name: string; width: number; height: number } | null>;
       injectInput?(cmd: string): Promise<boolean>;
 
+      checkForUpdates?(): Promise<{
+        success: boolean;
+        updateAvailable?: boolean;
+        local: { version: string; commit: string; commitShort: string; commitMessage: string; commitDate: string };
+        remote?: { commit: string; commitShort: string; message: string; date: string };
+        error?: string;
+      }>;
+      performUpdate?(): Promise<{ success: boolean; error?: string }>;
+
       secretSet(key: string, val: string): Promise<boolean>;
       secretGet(key: string): Promise<string>;
       secretClear(key: string): Promise<boolean>;
@@ -369,6 +378,24 @@ export const Bridge = {
   injectInput: async (cmd: string): Promise<boolean> => {
     if (window.electronAPI?.injectInput) return await window.electronAPI.injectInput(cmd);
     return false;
+  },
+
+  // ── GitHub 1-Click Auto-Updater ──────────────────────────────────────────
+  checkForUpdates: async () => {
+    if (window.electronAPI?.checkForUpdates) return await window.electronAPI.checkForUpdates();
+    return { success: false, error: "Auto-updater only available in desktop app" };
+  },
+
+  performUpdate: async () => {
+    if (window.electronAPI?.performUpdate) return await window.electronAPI.performUpdate();
+    return { success: false, error: "Auto-updater only available in desktop app" };
+  },
+
+  on: (channel: string, callback: (...args: any[]) => void): (() => void) => {
+    if (window.electronAPI?.on) {
+      return window.electronAPI.on(channel, callback);
+    }
+    return () => {};
   },
 
   // ── Secrets & Keys ────────────────────────────────────────────────────────

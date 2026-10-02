@@ -76,6 +76,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getPrimaryScreenSource: () => ipcRenderer.invoke("get-primary-screen-source"),
   injectInput: (cmd) => ipcRenderer.invoke("inject-remote-input", cmd),
 
+  // GitHub 1-Click Auto-Updater
+  checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
+  performUpdate: () => ipcRenderer.invoke("perform-update"),
+
   // Events from Main Process
   on: (channel, callback) => {
     const validChannels = [
@@ -96,6 +100,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "remote-access-declined",
       "remote-access-ended",
       "host-signal",
+      "update-progress",
+      "update-available",
     ];
     if (validChannels.includes(channel)) {
       const handler = (_event, ...args) => callback(...args);

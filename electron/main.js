@@ -31,7 +31,7 @@ const {
   getViewerInitData,
   closeRemoteViewerWindow,
 } = require("./remoteAccess");
-
+const { checkForUpdates, performUpdate, getLocalVersionInfo } = require("./updater");
 
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -1702,6 +1702,28 @@ ipcMain.handle("log", (_event, msg) => {
   return true;
 });
 
+// ── GitHub 1-Click Auto-Updater ──────────────────────────────────────────────
+ipcMain.handle("check-for-updates", async () => {
+  return await checkForUpdates();
+});
+
+ipcMain.handle("perform-update", async () => {
+  try {
+    await performUpdate((progressMsg) => {
+      if (settingsWin && !settingsWin.isDestroyed()) {
+        settingsWin.webContents.send("update-progress", progressMsg);
+      }
+      if (overlayWin && !overlayWin.isDestroyed()) {
+        overlayWin.webContents.send("update-progress", progressMsg);
+      }
+    });
+    return { success: true };
+  } catch (err) {
+    console.error("[Updater] Perform update error:", err);
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle("chat-send", async (_event, { query, context }) => {
   return await callAI(query, context);
 });
@@ -2601,6 +2623,19 @@ app.whenReady().then(() => {
   createOverlayWindow();
   startSupabaseSync();
   applyStartupMode(activeSettings.autostart);
+
+  // Background check for updates 10 seconds after launch
+  setTimeout(async () => {
+    try {
+      const check = await checkForUpdates();
+      if (check && check.updateAvailable && overlayWin && !overlayWin.isDestroyed()) {
+        console.log("[Updater] Update available on GitHub:", check.remote?.commitShort, check.remote?.message);
+        overlayWin.webContents.send("update-available", check);
+      }
+    } catch (err) {
+      console.warn("[Updater] Background check failed:", err);
+    }
+  }, 10000);
 
   app.on("activate", () => {
     if (!overlayWin || overlayWin.isDestroyed()) {

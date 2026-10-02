@@ -869,6 +869,186 @@ function generalSection(): HTMLElement {
   );
 }
 
+// ── Updates & GitHub Sync Section ───────────────────────────────────────────
+
+function updateSection(): HTMLElement {
+  const body = h("div", { style: "display:flex;flex-direction:column;gap:12px" });
+  const statusDotEl = statusDot(true);
+  const section = h(
+    "section",
+    {},
+    h("h2", {}, statusDotEl, h("span", { text: "Updates & GitHub Sync" })),
+    body
+  );
+
+  const versionLabel = h("span", {
+    style: "font-weight:600;font-size:12.5px;color:var(--ink);",
+    text: `Mochi v${version}`,
+  });
+
+  const checkBtn = h("button", {
+    class: "secondary",
+    style: "font-size:12px;padding:6px 14px;cursor:pointer;",
+    text: "🔄 Check for Updates",
+  });
+
+  const statusText = h("div", {
+    class: "hint",
+    style: "font-size:12px;color:var(--dim);line-height:1.5;",
+    text: "Mochi connects directly to your GitHub repository (takayduo/Mochi-Eye) to check for updates and bug fixes.",
+  });
+
+  // Card displayed when an update is available
+  const updateCard = h("div", {
+    style:
+      "display:none;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:10px;padding:14px;flex-direction:column;gap:10px;margin-top:4px;",
+  });
+
+  const updateTitle = h("div", {
+    style: "font-weight:600;font-size:13px;color:#22c55e;display:flex;align-items:center;gap:6px;",
+    text: "✨ New Update Available!",
+  });
+
+  const commitDetails = h("div", {
+    style: "font-size:12px;color:var(--ink);display:flex;flex-direction:column;gap:4px;",
+  });
+
+  const updateBtn = h("button", {
+    class: "primary",
+    style:
+      "background:#22c55e;color:#000;font-weight:600;font-size:12.5px;padding:8px 18px;align-self:flex-start;border-radius:8px;cursor:pointer;border:none;",
+    text: "🚀 Update Mochi & Restart",
+  });
+
+  const progressText = h("div", {
+    style: "display:none;font-size:12px;color:#f5a524;font-weight:500;",
+    text: "",
+  });
+
+  updateCard.append(updateTitle, commitDetails, updateBtn, progressText);
+
+  // Listen for live update progress events from Electron main process
+  Bridge.on("update-progress", (msg: string) => {
+    progressText.style.display = "block";
+    progressText.textContent = `⏳ ${msg}`;
+  });
+
+  async function check() {
+    checkBtn.setAttribute("disabled", "true");
+    checkBtn.textContent = "Checking GitHub...";
+    statusText.textContent = "Connecting to GitHub...";
+    statusText.style.color = "var(--dim)";
+
+    try {
+      const res = await Bridge.checkForUpdates();
+      if (!res || !res.success) {
+        statusText.textContent = `⚠️ Could not check for updates: ${res?.error || "Network error"}`;
+        statusText.style.color = "#f4505e";
+        statusDotEl.style.background = "#f4505e";
+        return;
+      }
+
+      const localShort = res.local?.commitShort || "current";
+      versionLabel.textContent = `Mochi v${res.local?.version || version} (${localShort})`;
+
+      if (res.updateAvailable && res.remote) {
+        statusDotEl.style.background = "#22c55e";
+        statusText.textContent = "✨ An update is ready to install!";
+        statusText.style.color = "#22c55e";
+
+        clear(commitDetails);
+        const dateStr = res.remote.date ? new Date(res.remote.date).toLocaleString() : "";
+        commitDetails.append(
+          h("div", {
+            style: "font-weight:500;color:var(--ink);",
+            text: `Latest commit: ${res.remote.message || "New updates available"}`,
+          }),
+          h("div", {
+            style: "color:var(--dim);font-size:11.5px;",
+            text: `Commit ${res.remote.commitShort} • Released: ${dateStr}`,
+          }),
+          h("div", {
+            style: "color:rgba(255,255,255,0.6);font-size:11.5px;margin-top:2px;",
+            text: "Your settings, API keys, tasks, and chat history are safely preserved during updates.",
+          })
+        );
+
+        updateCard.style.display = "flex";
+      } else {
+        statusDotEl.style.background = "#22c55e";
+        statusText.textContent = `✅ Mochi is completely up to date with GitHub (Commit: ${localShort}).`;
+        statusText.style.color = "#22c55e";
+        updateCard.style.display = "none";
+      }
+    } catch (e: any) {
+      statusText.textContent = `⚠️ Error checking for updates: ${e.message || e}`;
+      statusText.style.color = "#f4505e";
+      statusDotEl.style.background = "#f4505e";
+    } finally {
+      checkBtn.removeAttribute("disabled");
+      checkBtn.textContent = "🔄 Check for Updates";
+    }
+  }
+
+  checkBtn.addEventListener("click", () => void check());
+
+  updateBtn.addEventListener("click", async () => {
+    updateBtn.setAttribute("disabled", "true");
+    checkBtn.setAttribute("disabled", "true");
+    updateBtn.textContent = "Updating...";
+    progressText.style.display = "block";
+    progressText.textContent = "⏳ Starting update process...";
+
+    try {
+      const res = await Bridge.performUpdate();
+      if (res && !res.success) {
+        progressText.textContent = `❌ Update failed: ${res.error || "Unknown error"}`;
+        progressText.style.color = "#f4505e";
+        updateBtn.removeAttribute("disabled");
+        checkBtn.removeAttribute("disabled");
+        updateBtn.textContent = "🚀 Retry Update";
+      }
+    } catch (err: any) {
+      progressText.textContent = `❌ Update failed: ${err.message || err}`;
+      progressText.style.color = "#f4505e";
+      updateBtn.removeAttribute("disabled");
+      checkBtn.removeAttribute("disabled");
+      updateBtn.textContent = "🚀 Retry Update";
+    }
+  });
+
+  // Auto-check 400ms after opening settings
+  setTimeout(() => {
+    void check();
+  }, 400);
+
+  body.append(
+    h(
+      "div",
+      {
+        class: "hint",
+        text: "Whenever Badsha pushes new features or fixes to GitHub, you can update Mochi in 1 click. All your personal data, API keys, tasks, and couple sync stay 100% untouched.",
+      }
+    ),
+    h(
+      "div",
+      {
+        class: "row",
+        style: "display:flex;align-items:center;justify-content:space-between;padding:4px 0;",
+      },
+      h("div", { style: "display:flex;flex-direction:column;gap:3px;" },
+        h("label", { style: "font-weight:600;color:var(--ink);", text: "Installed Version" }),
+        versionLabel
+      ),
+      checkBtn
+    ),
+    statusText,
+    updateCard
+  );
+
+  return section;
+}
+
 async function init() {
   const boot = await Bridge.boot();
   if (boot) {
@@ -883,7 +1063,8 @@ async function init() {
     supabaseSection(),
     cloudSection(),
     appLauncherSection(),
-    generalSection()
+    generalSection(),
+    updateSection()
   );
 }
 

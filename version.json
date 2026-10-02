@@ -1,0 +1,6 @@
+{
+  "version": "1.0.0",
+  "commit": "b20c4f801c83e7583fe37e3a886def932c35d6ad",
+  "commitDate": "2026-10-02T19:32:49Z",
+  "commitMessage": "fix(remote): resolve WebRTC connection failure by buffering early IPC signals and bundling pre-gathered ICE candidates"
+}
