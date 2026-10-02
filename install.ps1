@@ -2,9 +2,13 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-function Download-Fast($url, $dest) {
+function Download-Fast($url, $dest, $showProgress = $false) {
     if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
-        & curl.exe -sSL "$url" -o "$dest"
+        if ($showProgress) {
+            & curl.exe -# -SL "$url" -o "$dest"
+        } else {
+            & curl.exe -sSL "$url" -o "$dest"
+        }
     } else {
         $wc = New-Object System.Net.WebClient
         $wc.DownloadFile($url, $dest)
@@ -120,9 +124,10 @@ if (-not (Test-Path $electronExe)) {
     $electronZipUrl = "https://github.com/electron/electron/releases/download/v$electronVersion/electron-v$electronVersion-win32-x64.zip"
     $electronZipPath = "$env:TEMP\electron-v$electronVersion.zip"
     
-    Write-Host "      Downloading Electron v$electronVersion binary directly..." -ForegroundColor Gray
-    Download-Fast $electronZipUrl $electronZipPath
+    Write-Host "      Downloading Electron v$electronVersion (~150 MB)... please wait a moment." -ForegroundColor Cyan
+    Download-Fast $electronZipUrl $electronZipPath $true
     
+    Write-Host "      Extracting Electron files..." -ForegroundColor Gray
     if (-not (Test-Path $electronDist)) {
         New-Item -ItemType Directory -Path $electronDist -Force | Out-Null
     }
@@ -134,6 +139,9 @@ if (-not (Test-Path $electronExe)) {
 
 # 4. Build Mochi
 Write-Host "[4/5] Building application bundle..." -ForegroundColor Yellow
+if (Test-Path "$installFolder\node_modules\esbuild\install.js") {
+    & $nodeExe "$installFolder\node_modules\esbuild\install.js" 2>$null
+}
 & $npmExe run build
 
 # 5. Create Desktop Shortcut (points directly to native electron.exe - no .vbs!)
