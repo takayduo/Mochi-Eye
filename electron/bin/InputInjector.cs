@@ -9,6 +9,9 @@ namespace MochiEye
     class InputInjector
     {
         [DllImport("user32.dll")]
+        static extern bool SetProcessDPIAware();
+
+        [DllImport("user32.dll")]
         static extern bool SetCursorPos(int X, int Y);
 
         [DllImport("user32.dll")]
@@ -16,6 +19,9 @@ namespace MochiEye
 
         [DllImport("user32.dll")]
         static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+        [DllImport("user32.dll")]
+        static extern uint MapVirtualKey(uint uCode, uint uMapType);
 
         [DllImport("user32.dll")]
         static extern int GetSystemMetrics(int nIndex);
@@ -37,9 +43,15 @@ namespace MochiEye
 
         static void Main(string[] args)
         {
+            try { SetProcessDPIAware(); } catch { }
             Console.OutputEncoding = Encoding.UTF8;
             Console.WriteLine("MOCHI_INJECTOR_READY");
             Console.Out.Flush();
+
+            int screenW = GetSystemMetrics(SM_CXSCREEN);
+            int screenH = GetSystemMetrics(SM_CYSCREEN);
+            if (screenW <= 0) screenW = 1920;
+            if (screenH <= 0) screenH = 1080;
 
             string line;
             while ((line = Console.ReadLine()) != null)
@@ -55,7 +67,7 @@ namespace MochiEye
 
                     switch (cmd)
                     {
-                        // m <x> <y> -> Mouse Move
+                        // m <x> <y> -> Direct pixel mouse move
                         case "m":
                             if (parts.Length >= 3)
                             {
@@ -65,10 +77,30 @@ namespace MochiEye
                             }
                             break;
 
-                        // d <btn: 1=left, 2=right, 3=middle> -> Mouse Down
+                        // mn <normX> <normY> -> Normalized 0.0 - 1.0 mouse move
+                        case "mn":
+                            if (parts.Length >= 3)
+                            {
+                                double nx = double.Parse(parts[1], CultureInfo.InvariantCulture);
+                                double ny = double.Parse(parts[2], CultureInfo.InvariantCulture);
+                                nx = Math.Max(0.0, Math.Min(1.0, nx));
+                                ny = Math.Max(0.0, Math.Min(1.0, ny));
+                                int x = (int)Math.Round(nx * screenW);
+                                int y = (int)Math.Round(ny * screenH);
+                                SetCursorPos(x, y);
+                            }
+                            break;
+
+                        // d <btn: 1=left, 2=right, 3=middle> [normX] [normY]
                         case "d":
                             if (parts.Length >= 2)
                             {
+                                if (parts.Length >= 4)
+                                {
+                                    double nx = double.Parse(parts[2], CultureInfo.InvariantCulture);
+                                    double ny = double.Parse(parts[3], CultureInfo.InvariantCulture);
+                                    SetCursorPos((int)Math.Round(nx * screenW), (int)Math.Round(ny * screenH));
+                                }
                                 int btn = int.Parse(parts[1], CultureInfo.InvariantCulture);
                                 if (btn == 1) mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
                                 else if (btn == 2) mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, UIntPtr.Zero);
@@ -76,10 +108,16 @@ namespace MochiEye
                             }
                             break;
 
-                        // u <btn: 1=left, 2=right, 3=middle> -> Mouse Up
+                        // u <btn: 1=left, 2=right, 3=middle> [normX] [normY]
                         case "u":
                             if (parts.Length >= 2)
                             {
+                                if (parts.Length >= 4)
+                                {
+                                    double nx = double.Parse(parts[2], CultureInfo.InvariantCulture);
+                                    double ny = double.Parse(parts[3], CultureInfo.InvariantCulture);
+                                    SetCursorPos((int)Math.Round(nx * screenW), (int)Math.Round(ny * screenH));
+                                }
                                 int btn = int.Parse(parts[1], CultureInfo.InvariantCulture);
                                 if (btn == 1) mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
                                 else if (btn == 2) mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, UIntPtr.Zero);
@@ -87,23 +125,25 @@ namespace MochiEye
                             }
                             break;
 
-                        // w <delta> -> Mouse Wheel
+                        // w <delta> -> Mouse wheel
                         case "w":
                             if (parts.Length >= 2)
                             {
                                 int delta = int.Parse(parts[1], CultureInfo.InvariantCulture);
-                                mouse_event(MOUSEEVENTF_WHEEL, 0, 0, (uint)delta, UIntPtr.Zero);
+                                mouse_event(MOUSEEVENTF_WHEEL, 0, 0, unchecked((uint)delta), UIntPtr.Zero);
                             }
                             break;
 
-                        // k <vk> <down: 1=press, 0=release> -> Key Event
+                        // k <vk> <down: 1=press, 0=release> -> Key event
                         case "k":
                             if (parts.Length >= 3)
                             {
                                 byte vk = byte.Parse(parts[1], CultureInfo.InvariantCulture);
                                 int down = int.Parse(parts[2], CultureInfo.InvariantCulture);
-                                uint flags = down == 1 ? 0 : KEYEVENTF_KEYUP;
-                                keybd_event(vk, 0, flags, UIntPtr.Zero);
+                                byte scan = (byte)MapVirtualKey(vk, 0);
+                                bool isExtended = (vk >= 33 && vk <= 46) || (vk >= 91 && vk <= 93) || (vk == 144) || (vk == 111);
+                                uint flags = (down == 1 ? 0u : KEYEVENTF_KEYUP) | (isExtended ? KEYEVENTF_EXTENDEDKEY : 0u);
+                                keybd_event(vk, scan, flags, UIntPtr.Zero);
                             }
                             break;
 
@@ -115,6 +155,14 @@ namespace MochiEye
                                 keybd_event(0, (byte)c, KEYEVENTF_UNICODE, UIntPtr.Zero);
                                 keybd_event(0, (byte)c, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, UIntPtr.Zero);
                             }
+                            break;
+
+                        // resync -> update screenW and screenH
+                        case "resync":
+                            screenW = GetSystemMetrics(SM_CXSCREEN);
+                            screenH = GetSystemMetrics(SM_CYSCREEN);
+                            if (screenW <= 0) screenW = 1920;
+                            if (screenH <= 0) screenH = 1080;
                             break;
                     }
                 }

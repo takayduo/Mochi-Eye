@@ -18,16 +18,24 @@ function ensureInputInjector() {
   if (fs.existsSync(exePath)) return exePath;
 
   if (fs.existsSync(csPath)) {
-    try {
-      const cscPath = "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe";
+    const cscCandidates = [
+      "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+      "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe",
+    ];
+    for (const cscPath of cscCandidates) {
       if (fs.existsSync(cscPath)) {
-        require("child_process").execSync(
-          `"${cscPath}" /nologo /optimize+ /target:exe /out:"${exePath}" "${csPath}"`
-        );
-        if (fs.existsSync(exePath)) return exePath;
+        try {
+          require("child_process").execSync(
+            `"${cscPath}" /nologo /optimize+ /target:exe /out:"${exePath}" "${csPath}"`
+          );
+          if (fs.existsSync(exePath)) {
+            console.log("[RemoteAccess] Successfully compiled InputInjector.exe using " + cscPath);
+            return exePath;
+          }
+        } catch (err) {
+          console.warn("[RemoteAccess] Failed to compile InputInjector with " + cscPath + ":", err);
+        }
       }
-    } catch (err) {
-      console.warn("[RemoteAccess] Failed to compile InputInjector:", err);
     }
   }
   return null;
@@ -37,6 +45,9 @@ function ensureInputInjector() {
  * Starts the native Win32 input injector process on the host being controlled.
  */
 function startInputInjector() {
+  if (inputInjectorProc && inputInjectorProc.stdin && !inputInjectorProc.stdin.destroyed) {
+    return true;
+  }
   stopInputInjector();
   const exePath = ensureInputInjector();
   if (!exePath) {
@@ -54,6 +65,10 @@ function startInputInjector() {
       console.log("[RemoteAccess Injector]", data.toString().trim());
     });
 
+    inputInjectorProc.stderr.on("data", (data) => {
+      console.warn("[RemoteAccess Injector stderr]", data.toString().trim());
+    });
+
     inputInjectorProc.on("error", (err) => {
       console.warn("[RemoteAccess Injector Error]:", err);
     });
@@ -63,6 +78,7 @@ function startInputInjector() {
       inputInjectorProc = null;
     });
 
+    console.log("[RemoteAccess] InputInjector spawned successfully:", exePath);
     return true;
   } catch (err) {
     console.error("[RemoteAccess] Could not spawn injector:", err);
@@ -72,15 +88,24 @@ function startInputInjector() {
 
 /**
  * Injects input command:
- * "m x y" | "d btn" | "u btn" | "w delta" | "k vk down" | "t unicode"
+ * "mn normX normY" | "m x y" | "d btn" | "u btn" | "w delta" | "k vk down" | "t unicode"
  */
 function injectInput(cmd) {
-  if (inputInjectorProc && inputInjectorProc.stdin && !inputInjectorProc.stdin.destroyed) {
-    try {
-      inputInjectorProc.stdin.write(cmd + "\n");
-    } catch (e) {
-      console.warn("[RemoteAccess] Write to injector failed:", e);
+  if (!cmd || typeof cmd !== "string") return;
+
+  if (!inputInjectorProc || !inputInjectorProc.stdin || inputInjectorProc.stdin.destroyed) {
+    console.log("[RemoteAccess] Injector not running, auto-starting now...");
+    const started = startInputInjector();
+    if (!started || !inputInjectorProc) {
+      console.error("[RemoteAccess] Failed to auto-start input injector");
+      return;
     }
+  }
+
+  try {
+    inputInjectorProc.stdin.write(cmd.trim() + "\n");
+  } catch (e) {
+    console.warn("[RemoteAccess] Write to injector failed:", e);
   }
 }
 

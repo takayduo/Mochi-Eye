@@ -74,6 +74,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   sendRemoteSignal: (signal) => ipcRenderer.invoke("send-remote-signal", signal),
   endRemoteAccess: () => ipcRenderer.invoke("end-remote-access"),
   getPrimaryScreenSource: () => ipcRenderer.invoke("get-primary-screen-source"),
+  injectInput: (cmd) => ipcRenderer.invoke("inject-remote-input", cmd),
 
   // Events from Main Process
   on: (channel, callback) => {

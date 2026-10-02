@@ -51,6 +51,7 @@ declare global {
       sendRemoteSignal?(signal: any): Promise<boolean>;
       endRemoteAccess?(): Promise<boolean>;
       getPrimaryScreenSource?(): Promise<{ id: string; name: string; width: number; height: number } | null>;
+      injectInput?(cmd: string): Promise<boolean>;
 
       secretSet(key: string, val: string): Promise<boolean>;
       secretGet(key: string): Promise<string>;
@@ -363,6 +364,11 @@ export const Bridge = {
   getPrimaryScreenSource: async (): Promise<{ id: string; name: string; width: number; height: number } | null> => {
     if (window.electronAPI?.getPrimaryScreenSource) return await window.electronAPI.getPrimaryScreenSource();
     return null;
+  },
+
+  injectInput: async (cmd: string): Promise<boolean> => {
+    if (window.electronAPI?.injectInput) return await window.electronAPI.injectInput(cmd);
+    return false;
   },
 
   // ── Secrets & Keys ────────────────────────────────────────────────────────

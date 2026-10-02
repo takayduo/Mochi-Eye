@@ -43,11 +43,22 @@ export async function startHostScreenSharing(): Promise<boolean> {
     }
 
     // Low-latency DataChannel for direct mouse & keyboard events
+    function wireChannel(ch: RTCDataChannel) {
+      ch.onopen = () => console.log("[HostStream] DataChannel is OPEN for input:", ch.label);
+      ch.onmessage = (e) => {
+        if (typeof e.data === "string") {
+          void Bridge.injectInput(e.data);
+        }
+      };
+      ch.onerror = (err) => console.warn("[HostStream] DataChannel error:", err);
+    }
+
     inputChannel = hostPeer.createDataChannel("input", { ordered: true });
-    inputChannel.onmessage = (e) => {
-      if (typeof e.data === "string" && (window as any).electronAPI?.injectInput) {
-        (window as any).electronAPI.injectInput(e.data);
-      }
+    wireChannel(inputChannel);
+
+    hostPeer.ondatachannel = (e) => {
+      console.log("[HostStream] Received incoming DataChannel from partner:", e.channel.label);
+      wireChannel(e.channel);
     };
 
     hostPeer.onicecandidate = (e) => {

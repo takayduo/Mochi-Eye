@@ -27,6 +27,7 @@
       justify-content: center;
       background: #000;
       cursor: crosshair;
+      outline: none;
     }
     #remoteVideo {
       max-width: 100%;
@@ -35,6 +36,7 @@
       height: 100%;
       object-fit: contain;
       pointer-events: auto;
+      outline: none;
     }
     /* Floating top toolbar */
     #toolbar {
@@ -42,16 +44,16 @@
       top: 14px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(18, 18, 24, 0.85);
+      background: rgba(18, 18, 24, 0.88);
       backdrop-filter: blur(16px);
       border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 30px;
-      padding: 6px 14px;
+      padding: 6px 16px;
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
       z-index: 1000;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
       transition: opacity 0.3s ease, transform 0.3s ease;
     }
     #toolbar.hidden {
@@ -75,13 +77,24 @@
       box-shadow: 0 0 8px #22c55e;
       animation: pulse 2s infinite;
     }
+    .p2p-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 8px;
+      background: rgba(34, 197, 94, 0.2);
+      color: #4ade80;
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
     @keyframes pulse {
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.6; transform: scale(1.15); }
     }
     .btn {
       background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.14);
       color: #f4f4f5;
       font-size: 11.5px;
       font-weight: 600;
@@ -94,8 +107,8 @@
       transition: all 0.15s ease;
     }
     .btn:hover {
-      background: rgba(255, 255, 255, 0.16);
-      border-color: rgba(255, 255, 255, 0.25);
+      background: rgba(255, 255, 255, 0.18);
+      border-color: rgba(255, 255, 255, 0.3);
     }
     .btn-danger {
       background: rgba(239, 68, 68, 0.2);
@@ -148,20 +161,25 @@
       <span class="badge-dot"></span>
       <span id="partnerTitle">Mochi Eye — Controlling Partner's PC</span>
     </div>
+    <span class="p2p-badge" id="p2pBadge">Connecting</span>
+    <button class="btn" id="btnWinKey" title="Send Windows Key to remote PC">🪟 Windows</button>
     <button class="btn" id="btnFullscreen" title="Toggle Fullscreen (F11)">⛶ Fullscreen</button>
     <button class="btn btn-danger" id="btnDisconnect" title="End remote access">🛑 End Session</button>
   </div>
 
-  <div id="viewport">
-    <video id="remoteVideo" autoplay playsinline></video>
+  <div id="viewport" tabindex="0">
+    <video id="remoteVideo" autoplay playsinline tabindex="0"></video>
   </div>
 
   <script>
     const video = document.getElementById("remoteVideo");
+    const viewport = document.getElementById("viewport");
     const toolbar = document.getElementById("toolbar");
     const loadingOverlay = document.getElementById("loadingOverlay");
     const loadingText = document.getElementById("loadingText");
     const partnerTitle = document.getElementById("partnerTitle");
+    const p2pBadge = document.getElementById("p2pBadge");
+    const btnWinKey = document.getElementById("btnWinKey");
     const btnFullscreen = document.getElementById("btnFullscreen");
     const btnDisconnect = document.getElementById("btnDisconnect");
 
@@ -193,26 +211,30 @@
       window.viewerAPI.endSession();
     });
 
-    window.addEventListener("keydown", (e) => {
-      if (e.key === "F11") {
-        e.preventDefault();
-        window.viewerAPI.toggleFullscreen();
-      }
+    btnWinKey.addEventListener("click", () => {
+      // Send Windows Key press & release to remote host
+      sendCommand("k 91 1");
+      setTimeout(() => sendCommand("k 91 0"), 60);
     });
 
     // ── Input Event Capture & Forwarding ──────────────────────────────────────
     function sendCommand(cmd) {
+      if (!cmd) return;
       if (dataChannel && dataChannel.readyState === "open") {
-        dataChannel.send(cmd);
-      } else {
-        window.viewerAPI.sendInput(cmd);
+        try {
+          dataChannel.send(cmd);
+          return;
+        } catch (e) {
+          console.warn("[RemoteViewer] DataChannel send error, falling back:", e);
+        }
       }
+      window.viewerAPI.sendInput(cmd);
     }
 
     function getNormalizedCoords(e) {
       const rect = video.getBoundingClientRect();
-      const videoWidth = video.videoWidth || remoteResolution.width;
-      const videoHeight = video.videoHeight || remoteResolution.height;
+      const videoWidth = video.videoWidth || remoteResolution.width || 1920;
+      const videoHeight = video.videoHeight || remoteResolution.height || 1080;
 
       // Handle aspect-ratio letterboxing
       const rectRatio = rect.width / rect.height;
@@ -237,31 +259,33 @@
       const normX = Math.max(0, Math.min(1, clientX / renderWidth));
       const normY = Math.max(0, Math.min(1, clientY / renderHeight));
 
-      const targetX = Math.round(normX * remoteResolution.width);
-      const targetY = Math.round(normY * remoteResolution.height);
+      const targetX = Math.round(normX * videoWidth);
+      const targetY = Math.round(normY * videoHeight);
 
-      return { x: targetX, y: targetY };
+      return { normX, normY, x: targetX, y: targetY };
     }
 
     let lastMoveTime = 0;
     video.addEventListener("mousemove", (e) => {
       const now = performance.now();
-      if (now - lastMoveTime < 16) return; // Cap at 60 FPS
+      if (now - lastMoveTime < 16) return; // ~60 FPS
       lastMoveTime = now;
       const pos = getNormalizedCoords(e);
-      sendCommand(`m ${pos.x} ${pos.y}`);
+      sendCommand(`mn ${pos.normX.toFixed(4)} ${pos.normY.toFixed(4)}`);
     });
 
     video.addEventListener("mousedown", (e) => {
+      video.focus();
       const pos = getNormalizedCoords(e);
-      sendCommand(`m ${pos.x} ${pos.y}`);
       const btn = e.button === 0 ? 1 : e.button === 2 ? 2 : 3;
-      sendCommand(`d ${btn}`);
+      // Send mouse position and down
+      sendCommand(`d ${btn} ${pos.normX.toFixed(4)} ${pos.normY.toFixed(4)}`);
     });
 
-    video.addEventListener("mouseup", (e) => {
+    window.addEventListener("mouseup", (e) => {
+      const pos = getNormalizedCoords(e);
       const btn = e.button === 0 ? 1 : e.button === 2 ? 2 : 3;
-      sendCommand(`u ${btn}`);
+      sendCommand(`u ${btn} ${pos.normX.toFixed(4)} ${pos.normY.toFixed(4)}`);
     });
 
     video.addEventListener("wheel", (e) => {
@@ -271,22 +295,65 @@
     }, { passive: false });
 
     video.addEventListener("contextmenu", (e) => {
-      e.preventDefault(); // Send native right click to remote without browser menu
+      e.preventDefault(); // Suppress local context menu
     });
 
+    // Keyboard capture
     window.addEventListener("keydown", (e) => {
-      // Don't intercept F11 (fullscreen toggle) or Escape
-      if (e.key === "F11") return;
-      if (e.repeat) return;
+      if (e.key === "F11") {
+        e.preventDefault();
+        window.viewerAPI.toggleFullscreen();
+        return;
+      }
+      if (e.key === "F12" || (e.ctrlKey && e.shiftKey && (e.key === "I" || e.key === "i"))) {
+        return; // Allow DevTools
+      }
+      e.preventDefault();
       sendCommand(`k ${e.keyCode} 1`);
     });
 
     window.addEventListener("keyup", (e) => {
-      if (e.key === "F11") return;
+      if (e.key === "F11" || e.key === "F12") return;
+      e.preventDefault();
       sendCommand(`k ${e.keyCode} 0`);
     });
 
+    // Release keys and mouse buttons if window loses focus
+    window.addEventListener("blur", () => {
+      sendCommand("u 1");
+      sendCommand("u 2");
+      sendCommand("u 3");
+      sendCommand("k 16 0"); // Shift
+      sendCommand("k 17 0"); // Ctrl
+      sendCommand("k 18 0"); // Alt
+    });
+
     // ── WebRTC Receiver Setup ──────────────────────────────────────────────────
+    function setupChannel(ch) {
+      if (!ch) return;
+      ch.onopen = () => {
+        console.log("[RemoteViewer] DataChannel connected & OPEN:", ch.label);
+        dataChannel = ch;
+        p2pBadge.textContent = "⚡ Low Latency P2P";
+        p2pBadge.style.color = "#4ade80";
+        p2pBadge.style.background = "rgba(34, 197, 94, 0.2)";
+      };
+      ch.onclose = () => {
+        console.log("[RemoteViewer] DataChannel closed:", ch.label);
+        if (dataChannel === ch) dataChannel = null;
+        p2pBadge.textContent = "Relay";
+        p2pBadge.style.color = "#fbbf24";
+        p2pBadge.style.background = "rgba(245, 158, 11, 0.2)";
+      };
+      ch.onerror = (err) => {
+        console.warn("[RemoteViewer] DataChannel error:", err);
+      };
+      if (ch.readyState === "open") {
+        dataChannel = ch;
+        p2pBadge.textContent = "⚡ Low Latency P2P";
+      }
+    }
+
     async function initWebRTC() {
       try {
         const info = await window.viewerAPI.getPartnerInfo();
@@ -308,8 +375,7 @@
         });
 
         peer.ondatachannel = (e) => {
-          dataChannel = e.channel;
-          console.log("[RemoteViewer] DataChannel connected:", dataChannel.label);
+          setupChannel(e.channel);
         };
 
         peer.ontrack = (e) => {
@@ -318,6 +384,7 @@
             video.srcObject = e.streams[0];
             loadingOverlay.classList.add("done");
             pingToolbar();
+            video.focus();
           }
         };
 
