@@ -281,6 +281,9 @@ function saveChatHistory(history) {
   }
 }
 
+let activeRemoteRole = null;
+let pendingViewerSignals = [];
+
 function startSupabaseSync() {
   if (!activeSettings.syncUrl || !activeSettings.syncApiKey) {
     console.log("[Supabase Sync] syncUrl or syncApiKey not configured yet.");
@@ -416,9 +419,6 @@ function startSupabaseSync() {
         overlayWin.webContents.send("partner-presence", { online: partnerOnline, partnerName: partnerUserName });
       }
     },
-let activeRemoteRole = null;
-let pendingViewerSignals = [];
-
     onRemoteAccess: (payload) => {
       console.log("[Supabase Sync] Incoming remote_access:", payload?.action, "from:", payload?.sender);
       if (!payload || !payload.action) return;
