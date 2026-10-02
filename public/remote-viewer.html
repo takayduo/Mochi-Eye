@@ -51,7 +51,7 @@
       padding: 6px 16px;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
       z-index: 1000;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
       transition: opacity 0.3s ease, transform 0.3s ease;
@@ -76,17 +76,6 @@
       background: #22c55e;
       box-shadow: 0 0 8px #22c55e;
       animation: pulse 2s infinite;
-    }
-    .p2p-badge {
-      font-size: 10px;
-      font-weight: 700;
-      padding: 2px 7px;
-      border-radius: 8px;
-      background: rgba(34, 197, 94, 0.2);
-      color: #4ade80;
-      border: 1px solid rgba(34, 197, 94, 0.3);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
     }
     @keyframes pulse {
       0%, 100% { opacity: 1; transform: scale(1); }
@@ -161,8 +150,6 @@
       <span class="badge-dot"></span>
       <span id="partnerTitle">Mochi Eye — Controlling Partner's PC</span>
     </div>
-    <span class="p2p-badge" id="p2pBadge">Connecting</span>
-    <button class="btn" id="btnWinKey" title="Send Windows Key to remote PC">🪟 Windows</button>
     <button class="btn" id="btnFullscreen" title="Toggle Fullscreen (F11)">⛶ Fullscreen</button>
     <button class="btn btn-danger" id="btnDisconnect" title="End remote access">🛑 End Session</button>
   </div>
@@ -178,8 +165,6 @@
     const loadingOverlay = document.getElementById("loadingOverlay");
     const loadingText = document.getElementById("loadingText");
     const partnerTitle = document.getElementById("partnerTitle");
-    const p2pBadge = document.getElementById("p2pBadge");
-    const btnWinKey = document.getElementById("btnWinKey");
     const btnFullscreen = document.getElementById("btnFullscreen");
     const btnDisconnect = document.getElementById("btnDisconnect");
 
@@ -209,12 +194,6 @@
 
     btnDisconnect.addEventListener("click", () => {
       window.viewerAPI.endSession();
-    });
-
-    btnWinKey.addEventListener("click", () => {
-      // Send Windows Key press & release to remote host
-      sendCommand("k 91 1");
-      setTimeout(() => sendCommand("k 91 0"), 60);
     });
 
     // ── Input Event Capture & Forwarding ──────────────────────────────────────
@@ -278,7 +257,6 @@
       video.focus();
       const pos = getNormalizedCoords(e);
       const btn = e.button === 0 ? 1 : e.button === 2 ? 2 : 3;
-      // Send mouse position and down
       sendCommand(`d ${btn} ${pos.normX.toFixed(4)} ${pos.normY.toFixed(4)}`);
     });
 
@@ -334,25 +312,36 @@
       ch.onopen = () => {
         console.log("[RemoteViewer] DataChannel connected & OPEN:", ch.label);
         dataChannel = ch;
-        p2pBadge.textContent = "⚡ Low Latency P2P";
-        p2pBadge.style.color = "#4ade80";
-        p2pBadge.style.background = "rgba(34, 197, 94, 0.2)";
       };
       ch.onclose = () => {
         console.log("[RemoteViewer] DataChannel closed:", ch.label);
         if (dataChannel === ch) dataChannel = null;
-        p2pBadge.textContent = "Relay";
-        p2pBadge.style.color = "#fbbf24";
-        p2pBadge.style.background = "rgba(245, 158, 11, 0.2)";
       };
       ch.onerror = (err) => {
         console.warn("[RemoteViewer] DataChannel error:", err);
       };
       if (ch.readyState === "open") {
         dataChannel = ch;
-        p2pBadge.textContent = "⚡ Low Latency P2P";
       }
     }
+
+    const ICE_SERVERS = [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+      { urls: "stun:stun3.l.google.com:19302" },
+      { urls: "stun:stun4.l.google.com:19302" },
+      { urls: "stun:stun.cloudflare.com:3478" },
+      {
+        urls: [
+          "turn:openrelay.metered.ca:80",
+          "turn:openrelay.metered.ca:443",
+          "turn:openrelay.metered.ca:443?transport=tcp",
+        ],
+        username: "openrelay",
+        credential: "openrelay",
+      },
+    ];
 
     async function initWebRTC() {
       try {
@@ -366,13 +355,7 @@
           remoteResolution = info.remoteResolution;
         }
 
-        peer = new RTCPeerConnection({
-          iceServers: [
-            { urls: "stun:stun.l.google.com:19302" },
-            { urls: "stun:stun1.l.google.com:19302" },
-            { urls: "stun:stun2.l.google.com:19302" },
-          ],
-        });
+        peer = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
         peer.ondatachannel = (e) => {
           setupChannel(e.channel);
