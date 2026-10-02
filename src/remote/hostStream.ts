@@ -14,19 +14,7 @@ export const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun3.l.google.com:19302" },
   { urls: "stun:stun4.l.google.com:19302" },
   { urls: "stun:stun.cloudflare.com:3478" },
-  { urls: "stun:openrelay.metered.ca:80" },
-  {
-    urls: [
-      "turn:openrelay.metered.ca:80",
-      "turn:openrelay.metered.ca:443",
-      "turn:openrelay.metered.ca:443?transport=tcp",
-      "turn:standard.relay.metered.ca:80",
-      "turn:standard.relay.metered.ca:443",
-      "turn:standard.relay.metered.ca:443?transport=tcp",
-    ],
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
+  { urls: "stun:stun.services.mozilla.com" },
 ];
 
 export interface HostStartResult {
@@ -112,21 +100,42 @@ export async function startHostScreenSharing(): Promise<HostStartResult> {
     const offer = await hostPeer.createOffer();
     await hostPeer.setLocalDescription(offer);
 
+    // Wait up to 600ms (or until gathering completes) so all host & STUN candidates are pre-gathered
+    await new Promise<void>((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (!done) {
+          done = true;
+          resolve();
+        }
+      };
+      if (hostPeer?.iceGatheringState === "complete") {
+        finish();
+        return;
+      }
+      const checkState = () => {
+        if (hostPeer?.iceGatheringState === "complete") finish();
+      };
+      hostPeer?.addEventListener("icegatheringstatechange", checkState);
+      setTimeout(finish, 600);
+    });
+
     const resolution = { width: source.width || 1920, height: source.height || 1080 };
     const offerPayload = {
       type: "offer",
-      sdp: offer.sdp || "",
-      candidates: hostGatheredCandidates,
+      sdp: hostPeer.localDescription?.sdp || offer.sdp || "",
+      candidates: hostGatheredCandidates.slice(),
     };
 
     // Also broadcast the offer signal as fallback
     await Bridge.sendRemoteSignal({
       type: "offer",
-      sdp: offer.sdp,
+      sdp: offerPayload.sdp,
+      candidates: offerPayload.candidates,
       resolution,
     });
 
-    console.log("[HostStream] Started WebRTC screen sharing successfully");
+    console.log("[HostStream] Started WebRTC screen sharing successfully. Pre-gathered candidates count:", hostGatheredCandidates.length);
     return { success: true, offer: offerPayload, resolution };
   } catch (err) {
     console.error("[HostStream] Screen sharing startup failed:", err);
@@ -143,6 +152,17 @@ export async function handleHostSignal(signal: any): Promise<void> {
       console.log("[HostStream] Received SDP Answer from partner viewer");
       await hostPeer.setRemoteDescription(new RTCSessionDescription(signal));
       console.log("[HostStream] WebRTC connection established with partner viewer!");
+
+      // If answer has pre-gathered candidates, add them immediately!
+      if (signal.candidates && Array.isArray(signal.candidates)) {
+        for (const c of signal.candidates) {
+          try {
+            await hostPeer.addIceCandidate(new RTCIceCandidate(c));
+          } catch (candErr) {
+            console.warn("[HostStream] Failed adding answer candidate:", candErr);
+          }
+        }
+      }
 
       // Flush queued viewer ICE candidates
       while (pendingViewerCandidates.length > 0) {

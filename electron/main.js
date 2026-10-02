@@ -1581,14 +1581,10 @@ ipcMain.handle("viewer-get-partner-info", () => {
   // If there are pending signals, deliver them now that the viewer is requesting info
   const viewer = getRemoteViewerWindow();
   if (viewer && viewer.webContents && pendingViewerSignals.length > 0) {
-    setTimeout(() => {
-      if (viewer && !viewer.isDestroyed() && viewer.webContents) {
-        for (const sig of pendingViewerSignals) {
-          viewer.webContents.send("viewer-signal", sig);
-        }
-        pendingViewerSignals = [];
-      }
-    }, 50);
+    for (const sig of pendingViewerSignals) {
+      viewer.webContents.send("viewer-signal", sig);
+    }
+    pendingViewerSignals = [];
   }
 
   return {
