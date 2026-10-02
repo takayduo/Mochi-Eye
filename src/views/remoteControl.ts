@@ -78,8 +78,12 @@ export function buildRemoteControl(actions: ViewActions): ViewHost {
         State.remoteAccessStatus = "active_host";
         renderState();
         State.notify();
-        await startHostScreenSharing();
-        await Bridge.respondRemoteAccess(true);
+        const res = await startHostScreenSharing();
+        if (res && res.offer) {
+          await Bridge.respondRemoteAccess(true, { offer: res.offer, resolution: res.resolution });
+        } else {
+          await Bridge.respondRemoteAccess(true);
+        }
       });
 
       const btnDecline = h(

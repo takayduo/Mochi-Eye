@@ -155,7 +155,7 @@
   </div>
 
   <div id="viewport" tabindex="0">
-    <video id="remoteVideo" autoplay playsinline tabindex="0"></video>
+    <video id="remoteVideo" autoplay playsinline muted tabindex="0"></video>
   </div>
 
   <script>
@@ -332,16 +332,64 @@
       { urls: "stun:stun3.l.google.com:19302" },
       { urls: "stun:stun4.l.google.com:19302" },
       { urls: "stun:stun.cloudflare.com:3478" },
+      { urls: "stun:openrelay.metered.ca:80" },
       {
         urls: [
           "turn:openrelay.metered.ca:80",
           "turn:openrelay.metered.ca:443",
           "turn:openrelay.metered.ca:443?transport=tcp",
+          "turn:standard.relay.metered.ca:80",
+          "turn:standard.relay.metered.ca:443",
+          "turn:standard.relay.metered.ca:443?transport=tcp",
         ],
-        username: "openrelay",
-        credential: "openrelay",
+        username: "openrelayproject",
+        credential: "openrelayproject",
       },
     ];
+
+    let pendingHostCandidates = [];
+    let hasSetRemoteDesc = false;
+
+    async function addCandidate(candidate) {
+      if (!candidate) return;
+      if (!hasSetRemoteDesc || !peer || !peer.remoteDescription) {
+        pendingHostCandidates.push(candidate);
+        return;
+      }
+      try {
+        await peer.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.warn("[RemoteViewer] Error adding ICE candidate:", err);
+      }
+    }
+
+    async function handleOffer(offer) {
+      if (!offer || !offer.sdp) return;
+      try {
+        console.log("[RemoteViewer] Processing SDP Offer from partner...");
+        loadingText.textContent = `Connecting to ${partnerName}'s desktop stream...`;
+        await peer.setRemoteDescription(new RTCSessionDescription(offer));
+        hasSetRemoteDesc = true;
+
+        // Flush any candidates that arrived before offer was set
+        while (pendingHostCandidates.length > 0) {
+          const cand = pendingHostCandidates.shift();
+          try {
+            await peer.addIceCandidate(new RTCIceCandidate(cand));
+          } catch (e) {
+            console.warn("[RemoteViewer] Error flushing candidate:", e);
+          }
+        }
+
+        const answer = await peer.createAnswer();
+        await peer.setLocalDescription(answer);
+        window.viewerAPI.sendSignal({ type: "answer", sdp: answer.sdp });
+        console.log("[RemoteViewer] Sent SDP Answer to host successfully");
+      } catch (err) {
+        console.error("[RemoteViewer] handleOffer error:", err);
+        loadingText.textContent = "Negotiation failed: " + err.message;
+      }
+    }
 
     async function initWebRTC() {
       try {
@@ -355,7 +403,10 @@
           remoteResolution = info.remoteResolution;
         }
 
-        peer = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        peer = new RTCPeerConnection({
+          iceServers: ICE_SERVERS,
+          iceCandidatePoolSize: 10,
+        });
 
         peer.ondatachannel = (e) => {
           setupChannel(e.channel);
@@ -365,9 +416,49 @@
           console.log("[RemoteViewer] Received remote track:", e.streams);
           if (e.streams && e.streams[0]) {
             video.srcObject = e.streams[0];
-            loadingOverlay.classList.add("done");
-            pingToolbar();
-            video.focus();
+            video.play().catch((err) => {
+              console.warn("[RemoteViewer] video.play() error:", err);
+            });
+          }
+        };
+
+        // Reveal the stream only when video actually begins playing frames
+        video.addEventListener("playing", () => {
+          console.log("[RemoteViewer] Video feed is rendering live frames!");
+          loadingOverlay.classList.add("done");
+          pingToolbar();
+          video.focus();
+        });
+
+        video.addEventListener("loadeddata", () => {
+          console.log("[RemoteViewer] Video loaded data");
+          video.play().catch(() => {});
+        });
+
+        peer.oniceconnectionstatechange = () => {
+          const st = peer.iceConnectionState;
+          console.log("[RemoteViewer] ICE connection state:", st);
+          if (st === "checking") {
+            loadingText.textContent = "Routing connection to partner...";
+          } else if (st === "connected" || st === "completed") {
+            loadingText.textContent = "Media route active! Starting display...";
+          } else if (st === "failed") {
+            console.warn("[RemoteViewer] ICE failed, attempting restart...");
+            loadingText.textContent = "Direct route failed, retrying through relay...";
+            try { peer.restartIce(); } catch (e) {}
+          } else if (st === "disconnected") {
+            loadingText.textContent = "Reconnecting to partner...";
+          }
+        };
+
+        peer.onconnectionstatechange = () => {
+          const st = peer.connectionState;
+          console.log("[RemoteViewer] Peer connection state:", st);
+          if (st === "connected") {
+            loadingText.textContent = "Connected! Rendering desktop...";
+          } else if (st === "failed") {
+            loadingText.textContent = "Connection to partner failed. Please end session and retry.";
+            loadingOverlay.classList.remove("done");
           }
         };
 
@@ -382,12 +473,9 @@
           if (!peer || !signal) return;
           try {
             if (signal.type === "offer") {
-              await peer.setRemoteDescription(new RTCSessionDescription(signal));
-              const answer = await peer.createAnswer();
-              await peer.setLocalDescription(answer);
-              window.viewerAPI.sendSignal({ type: "answer", sdp: answer.sdp });
+              await handleOffer(signal);
             } else if (signal.type === "candidate") {
-              await peer.addIceCandidate(new RTCIceCandidate(signal.candidate));
+              await addCandidate(signal.candidate);
             } else if (signal.type === "resolution") {
               remoteResolution = signal.resolution;
             }
@@ -396,7 +484,18 @@
           }
         });
 
-        // Request initial offer from host
+        // If host's initial offer was passed during window creation, process it immediately!
+        if (info && info.initialOffer) {
+          console.log("[RemoteViewer] Processing initial SDP offer from partner info");
+          await handleOffer(info.initialOffer);
+          if (info.initialOffer.candidates && Array.isArray(info.initialOffer.candidates)) {
+            for (const c of info.initialOffer.candidates) {
+              await addCandidate(c);
+            }
+          }
+        }
+
+        // Notify host that viewer window is ready
         window.viewerAPI.sendSignal({ type: "ready" });
       } catch (err) {
         console.error("[RemoteViewer] Init error:", err);

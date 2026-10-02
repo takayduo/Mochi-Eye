@@ -346,8 +346,8 @@ export const Bridge = {
     return false;
   },
 
-  respondRemoteAccess: async (accepted: boolean): Promise<boolean> => {
-    if (window.electronAPI?.respondRemoteAccess) return await window.electronAPI.respondRemoteAccess(accepted);
+  respondRemoteAccess: async (accepted: boolean, extra?: any): Promise<boolean> => {
+    if (window.electronAPI?.respondRemoteAccess) return await window.electronAPI.respondRemoteAccess(accepted, extra);
     return false;
   },
 

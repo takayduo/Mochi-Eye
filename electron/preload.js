@@ -70,7 +70,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Remote Access (Mochi Eye Co-Pilot)
   requestRemoteAccess: () => ipcRenderer.invoke("request-remote-access"),
-  respondRemoteAccess: (accepted) => ipcRenderer.invoke("respond-remote-access", accepted),
+  respondRemoteAccess: (accepted, extra) => ipcRenderer.invoke("respond-remote-access", accepted, extra),
   sendRemoteSignal: (signal) => ipcRenderer.invoke("send-remote-signal", signal),
   endRemoteAccess: () => ipcRenderer.invoke("end-remote-access"),
   getPrimaryScreenSource: () => ipcRenderer.invoke("get-primary-screen-source"),

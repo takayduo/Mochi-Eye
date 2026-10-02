@@ -150,12 +150,21 @@ async function getPrimaryScreenSource() {
   return null;
 }
 
+let currentViewerInitData = null;
+
 /**
  * Creates the Fullscreen/Windowed Remote Desktop Viewer Window for viewing partner's PC.
  */
-function createRemoteViewerWindow({ partnerName, onViewerReady, onViewerClosed, onSignal, onEndSession }) {
+function createRemoteViewerWindow({ partnerName, remoteResolution, initialOffer, onViewerReady, onViewerClosed, onSignal, onEndSession }) {
+  currentViewerInitData = {
+    partnerName: partnerName || "Partner",
+    remoteResolution: remoteResolution || { width: 1920, height: 1080 },
+    initialOffer: initialOffer || null,
+  };
+
   if (remoteViewerWin && !remoteViewerWin.isDestroyed()) {
     remoteViewerWin.focus();
+    if (onViewerReady) onViewerReady(remoteViewerWin);
     return remoteViewerWin;
   }
 
@@ -182,11 +191,12 @@ function createRemoteViewerWindow({ partnerName, onViewerReady, onViewerClosed, 
 
   remoteViewerWin.once("ready-to-show", () => {
     remoteViewerWin.show();
-    if (onViewerReady) onViewerReady();
+    if (onViewerReady) onViewerReady(remoteViewerWin);
   });
 
   remoteViewerWin.on("closed", () => {
     remoteViewerWin = null;
+    currentViewerInitData = null;
     if (onViewerClosed) onViewerClosed();
   });
 
@@ -197,11 +207,16 @@ function getRemoteViewerWindow() {
   return remoteViewerWin && !remoteViewerWin.isDestroyed() ? remoteViewerWin : null;
 }
 
+function getViewerInitData() {
+  return currentViewerInitData;
+}
+
 function closeRemoteViewerWindow() {
   if (remoteViewerWin && !remoteViewerWin.isDestroyed()) {
     remoteViewerWin.close();
   }
   remoteViewerWin = null;
+  currentViewerInitData = null;
 }
 
 module.exports = {
@@ -212,5 +227,6 @@ module.exports = {
   getPrimaryScreenSource,
   createRemoteViewerWindow,
   getRemoteViewerWindow,
+  getViewerInitData,
   closeRemoteViewerWindow,
 };

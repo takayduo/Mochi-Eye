@@ -28,6 +28,7 @@ const {
   getPrimaryScreenSource,
   createRemoteViewerWindow,
   getRemoteViewerWindow,
+  getViewerInitData,
   closeRemoteViewerWindow,
 } = require("./remoteAccess");
 
@@ -415,6 +416,9 @@ function startSupabaseSync() {
         overlayWin.webContents.send("partner-presence", { online: partnerOnline, partnerName: partnerUserName });
       }
     },
+let activeRemoteRole = null;
+let pendingViewerSignals = [];
+
     onRemoteAccess: (payload) => {
       console.log("[Supabase Sync] Incoming remote_access:", payload?.action, "from:", payload?.sender);
       if (!payload || !payload.action) return;
@@ -427,21 +431,32 @@ function startSupabaseSync() {
         }
       } else if (action === "response") {
         if (payload.accepted) {
+          activeRemoteRole = "viewer";
           if (overlayWin && !overlayWin.isDestroyed()) {
             overlayWin.webContents.send("remote-access-accepted", payload);
           }
           createRemoteViewerWindow({
             partnerName: payload.sender || partnerUserName,
-            onViewerReady: () => {
-              const viewer = getRemoteViewerWindow();
-              if (viewer) {
+            remoteResolution: payload.resolution || { width: 1920, height: 1080 },
+            initialOffer: payload.offer || null,
+            onViewerReady: (viewer) => {
+              if (viewer && !viewer.isDestroyed()) {
                 viewer.webContents.send("viewer-partner-info", {
                   partnerName: payload.sender || partnerUserName,
                   remoteResolution: payload.resolution || { width: 1920, height: 1080 },
+                  initialOffer: payload.offer || null,
                 });
+                if (pendingViewerSignals.length > 0) {
+                  for (const sig of pendingViewerSignals) {
+                    viewer.webContents.send("viewer-signal", sig);
+                  }
+                  pendingViewerSignals = [];
+                }
               }
             },
             onViewerClosed: () => {
+              activeRemoteRole = null;
+              pendingViewerSignals = [];
               broadcastRemoteAccess({ action: "end", sender: currentUserName });
               if (overlayWin && !overlayWin.isDestroyed()) {
                 overlayWin.webContents.send("remote-access-ended");
@@ -449,14 +464,18 @@ function startSupabaseSync() {
             },
           });
         } else {
+          activeRemoteRole = null;
+          pendingViewerSignals = [];
           if (overlayWin && !overlayWin.isDestroyed()) {
             overlayWin.webContents.send("remote-access-declined", payload);
           }
         }
       } else if (action === "signal") {
         const viewer = getRemoteViewerWindow();
-        if (viewer) {
+        if (viewer && viewer.webContents && !viewer.webContents.isLoading()) {
           viewer.webContents.send("viewer-signal", payload.signal);
+        } else if (activeRemoteRole === "viewer") {
+          pendingViewerSignals.push(payload.signal);
         } else if (overlayWin && !overlayWin.isDestroyed()) {
           overlayWin.webContents.send("host-signal", payload.signal);
         }
@@ -465,6 +484,8 @@ function startSupabaseSync() {
           injectInput(payload.cmd);
         }
       } else if (action === "end") {
+        activeRemoteRole = null;
+        pendingViewerSignals = [];
         closeRemoteViewerWindow();
         stopInputInjector();
         if (overlayWin && !overlayWin.isDestroyed()) {
@@ -1493,27 +1514,33 @@ ipcMain.handle("mark-chat-read", () => {
 
 // ── Remote Access (Mochi Eye Co-Pilot) ───────────────────────────────────────
 ipcMain.handle("request-remote-access", async () => {
+  activeRemoteRole = "viewer";
+  pendingViewerSignals = [];
   const isMe = (activeSettings.userRole || "me") === "me";
   const rawMe = isMe ? (activeSettings.userName || "Badsha") : (activeSettings.partnerName || "Ayzil");
   const currentUserName = rawMe.charAt(0).toUpperCase() + rawMe.slice(1);
   return await broadcastRemoteAccess({ action: "request", sender: currentUserName });
 });
 
-ipcMain.handle("respond-remote-access", async (_event, accepted) => {
+ipcMain.handle("respond-remote-access", async (_event, accepted, extra) => {
   const isMe = (activeSettings.userRole || "me") === "me";
   const rawMe = isMe ? (activeSettings.userName || "Badsha") : (activeSettings.partnerName || "Ayzil");
   const currentUserName = rawMe.charAt(0).toUpperCase() + rawMe.slice(1);
 
   if (accepted) {
+    activeRemoteRole = "host";
     startInputInjector();
     const primary = screen.getPrimaryDisplay();
     return await broadcastRemoteAccess({
       action: "response",
       accepted: true,
       sender: currentUserName,
-      resolution: { width: primary.bounds.width, height: primary.bounds.height },
+      resolution: extra?.resolution || { width: primary.bounds.width, height: primary.bounds.height },
+      offer: extra?.offer || null,
     });
   } else {
+    activeRemoteRole = null;
+    pendingViewerSignals = [];
     return await broadcastRemoteAccess({
       action: "response",
       accepted: false,
@@ -1527,6 +1554,8 @@ ipcMain.handle("send-remote-signal", async (_event, signal) => {
 });
 
 ipcMain.handle("end-remote-access", async () => {
+  activeRemoteRole = null;
+  pendingViewerSignals = [];
   closeRemoteViewerWindow();
   stopInputInjector();
   return await broadcastRemoteAccess({ action: "end" });
@@ -1547,9 +1576,25 @@ ipcMain.handle("viewer-get-partner-info", () => {
   const rawPartner = isMe ? (activeSettings.partnerName || "Ayzil") : (activeSettings.userName || "Badsha");
   const partnerUserName = rawPartner.charAt(0).toUpperCase() + rawPartner.slice(1);
   const primary = screen.getPrimaryDisplay();
+  const initData = getViewerInitData();
+
+  // If there are pending signals, deliver them now that the viewer is requesting info
+  const viewer = getRemoteViewerWindow();
+  if (viewer && viewer.webContents && pendingViewerSignals.length > 0) {
+    setTimeout(() => {
+      if (viewer && !viewer.isDestroyed() && viewer.webContents) {
+        for (const sig of pendingViewerSignals) {
+          viewer.webContents.send("viewer-signal", sig);
+        }
+        pendingViewerSignals = [];
+      }
+    }, 50);
+  }
+
   return {
-    partnerName: partnerUserName,
-    remoteResolution: { width: primary.bounds.width, height: primary.bounds.height },
+    partnerName: initData?.partnerName || partnerUserName,
+    remoteResolution: initData?.remoteResolution || { width: primary.bounds.width, height: primary.bounds.height },
+    initialOffer: initData?.initialOffer || null,
   };
 });
 
@@ -1570,6 +1615,8 @@ ipcMain.handle("viewer-toggle-fullscreen", () => {
 });
 
 ipcMain.handle("viewer-end-session", async () => {
+  activeRemoteRole = null;
+  pendingViewerSignals = [];
   closeRemoteViewerWindow();
   stopInputInjector();
   const isMe = (activeSettings.userRole || "me") === "me";
