@@ -1679,9 +1679,15 @@ ipcMain.handle("transcribe-audio", async (_event, audioBase64) => {
     const formData = new FormData();
     const file = new File([buffer], "audio.wav", { type: "audio/wav" });
     formData.append("file", file);
-    formData.append("model", "whisper-large-v3-turbo");
+    formData.append("model", "whisper-large-v3");
+    formData.append("language", "en");
+    formData.append("temperature", "0");
+    formData.append(
+      "prompt",
+      "Mochi, open Discord, WhatsApp, OBS, Premiere Pro, Roblox, Valorant, schedule, calendar, Ayzil, Badsha, what is our schedule today, send a message to partner, download file."
+    );
 
-    const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+    let res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${key}`,
@@ -1690,8 +1696,28 @@ ipcMain.handle("transcribe-audio", async (_event, audioBase64) => {
     });
 
     if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Whisper transcription failed: ${err}`);
+      // Fallback to whisper-large-v3-turbo if whisper-large-v3 is temporarily rate-limited
+      const errText = await res.text();
+      console.warn("[Whisper v3 Error, trying turbo fallback]:", errText);
+
+      const fbForm = new FormData();
+      const fbFile = new File([buffer], "audio.wav", { type: "audio/wav" });
+      fbForm.append("file", fbFile);
+      fbForm.append("model", "whisper-large-v3-turbo");
+      fbForm.append("language", "en");
+      fbForm.append("temperature", "0");
+      fbForm.append("prompt", "Mochi, open Discord, WhatsApp, OBS, Premiere Pro, Roblox, Valorant, schedule");
+
+      res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}` },
+        body: fbForm,
+      });
+
+      if (!res.ok) {
+        const fbErr = await res.text();
+        throw new Error(`Whisper transcription failed: ${fbErr}`);
+      }
     }
 
     const data = await res.json();

@@ -49,6 +49,47 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+function isWhisperHallucination(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  if (!t || t.length < 2) return true;
+  if (/^[\[\(].*[\]\)]$/.test(t)) return true;
+  if (/^[*].*[*]$/.test(t)) return true;
+
+  const clean = t.replace(/[^a-z0-9 ]/g, "").trim();
+  const hallucinations = new Set([
+    "thank you",
+    "thank you so much",
+    "thank you for watching",
+    "thanks for watching",
+    "please subscribe",
+    "like and subscribe",
+    "subscribe to my channel",
+    "see you next time",
+    "see you in the next video",
+    "see you later",
+    "bye",
+    "bye bye",
+    "goodbye",
+    "you",
+    "oh",
+    "ah",
+    "huh",
+    "yeah",
+    "okay",
+    "subtitles by",
+    "translated by",
+    "closed captions",
+    "silence",
+    "music",
+    "applause",
+    "laughter",
+  ]);
+  if (hallucinations.has(clean)) return true;
+  if (clean.length <= 1) return true;
+
+  return false;
+}
+
 class VoiceService {
   private audioCtx: AudioContext | null = null;
   private micStream: MediaStream | null = null;
@@ -58,12 +99,15 @@ class VoiceService {
   private isProcessing = false;
   private onQuerySent?: () => void;
 
-  // Voice Activity Detection (VAD) buffers
+  // Voice Activity Detection (VAD) buffers & pre-roll
   private audioChunks: Float32Array[] = [];
+  private preRollBuffer: Float32Array[] = [];
+  private readonly PRE_ROLL_LIMIT = 3; // Keep ~384ms before speech so first syllables are never cut
   private silenceFrames = 0;
   private speakingFrames = 0;
-  private readonly SPEECH_THRESHOLD = 0.032;
-  private readonly SILENCE_FRAMES_LIMIT = 20; // ~650ms of silence to finish sentence
+  private ambientNoiseRms = 0.015;
+  private readonly MIN_SPEECH_FRAMES = 4; // Require at least ~500ms of real voice to avoid random clicks
+  private readonly SILENCE_FRAMES_LIMIT = 8; // ~1000ms silence to finish sentence (responsive & clean)
 
   init(onQuerySent?: () => void) {
     this.onQuerySent = onQuerySent;
@@ -91,6 +135,12 @@ class VoiceService {
         sampleRate: 16000,
       });
 
+      if (this.audioCtx && this.audioCtx.state === "suspended") {
+        try {
+          await this.audioCtx.resume();
+        } catch {}
+      }
+
       const source = this.audioCtx.createMediaStreamSource(this.micStream);
       // 2048 buffer size at 16000Hz ≈ 128ms per frame
       this.processor = this.audioCtx.createScriptProcessor(2048, 1, 1);
@@ -110,19 +160,43 @@ class VoiceService {
         }
         const rms = Math.sqrt(sum / inputData.length);
 
-        if (rms > this.SPEECH_THRESHOLD) {
-          // User is speaking!
+        // Dynamically compute speech threshold based on room background noise
+        const dynamicThreshold = Math.max(0.026, this.ambientNoiseRms * 2.4);
+
+        if (rms > dynamicThreshold) {
+          if (this.speakingFrames === 0) {
+            // Speech just started! Prepend pre-roll buffer so starting consonant is intact!
+            this.audioChunks = this.preRollBuffer.map((b) => new Float32Array(b));
+          }
           this.speakingFrames++;
           this.silenceFrames = 0;
           this.audioChunks.push(new Float32Array(inputData));
-        } else if (this.speakingFrames > 3) {
-          // Recording in progress, current frame quiet
-          this.audioChunks.push(new Float32Array(inputData));
-          this.silenceFrames++;
+        } else {
+          // Track ambient room background noise adaptively when quiet
+          this.ambientNoiseRms = this.ambientNoiseRms * 0.95 + rms * 0.05;
 
-          // If silence lasts limit frames, sentence ended
-          if (this.silenceFrames >= this.SILENCE_FRAMES_LIMIT) {
-            void this.handleSpeechComplete();
+          // Maintain pre-roll circular buffer when not speaking
+          if (this.speakingFrames === 0) {
+            this.preRollBuffer.push(new Float32Array(inputData));
+            if (this.preRollBuffer.length > this.PRE_ROLL_LIMIT) {
+              this.preRollBuffer.shift();
+            }
+          } else {
+            // Currently recording speech and this frame is quiet
+            this.audioChunks.push(new Float32Array(inputData));
+            this.silenceFrames++;
+
+            if (this.silenceFrames >= this.SILENCE_FRAMES_LIMIT) {
+              // Sentence ended
+              if (this.speakingFrames >= this.MIN_SPEECH_FRAMES) {
+                void this.handleSpeechComplete();
+              } else {
+                // Was just a quick click, breath, or tap: discard
+                this.audioChunks = [];
+                this.silenceFrames = 0;
+                this.speakingFrames = 0;
+              }
+            }
           }
         }
       };
@@ -145,6 +219,7 @@ class VoiceService {
   stop() {
     this.isListening = false;
     this.audioChunks = [];
+    this.preRollBuffer = [];
     this.silenceFrames = 0;
     this.speakingFrames = 0;
 
@@ -188,9 +263,9 @@ class VoiceService {
       if (!res.success || !res.text) return;
 
       const transcript = res.text.trim();
-      const lower = transcript.toLowerCase().replace(/[^a-z0-9]/g, "");
-      // Ignore silence artifacts
-      if (lower === "thankyou" || lower === "you" || lower === "bye" || lower === "" || lower.length < 2) {
+      // Drop silence artifacts and Whisper hallucinations
+      if (isWhisperHallucination(transcript)) {
+        console.log("[Voice] Ignored hallucination / background noise:", transcript);
         return;
       }
 
