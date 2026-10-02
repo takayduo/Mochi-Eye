@@ -107,6 +107,25 @@ Once installed, you can launch Mochi anytime:
 
 ---
 
+## 🗑️ How to Uninstall
+
+If you ever want to completely remove Mochi Eye from your PC:
+
+### 🌟 Option 1: 1-Line Automatic Uninstaller (Fastest)
+Open **PowerShell** and paste:
+```powershell
+irm https://raw.githubusercontent.com/takayduo/Mochi-Eye/main/uninstall.ps1 | iex
+```
+This stops any running Mochi processes, removes the app folder, deletes the Desktop & Startup shortcuts, and cleans the cache automatically.
+
+### ✋ Option 2: Manual Uninstallation (Simple 3 Steps)
+1. **Quit Mochi**: Right-click the Mochi icon in your Windows System Tray (near the clock) $\rightarrow$ click **Quit** (or end process in Task Manager).
+2. **Delete the App Folder**: Open File Explorer, go to your User folder (`C:\Users\YourUsername`), and delete the **`Mochi-Eye`** folder.
+3. **Delete the Desktop Shortcut**: Delete **`Mochi Eye`** from your Desktop.
+*(Optional: If you enabled "Run on PC Startup", press <kbd>Win</kbd> + <kbd>R</kbd>, type `shell:startup`, and delete `Mochi.lnk`).*
+
+---
+
 ## ⚙️ Quick Configuration Guide
 
 You do **NOT** need to edit any code files to configure Mochi. Everything is set up via the built-in Settings window:
