@@ -16,13 +16,14 @@
 - 🍡 **Authentic Canvas 2D Physics**: Exact squircle superellipse math, cursor-following pupils, eye blinks, breathing springs, particle systems (hearts, stars, sweat drops), and emotional states (`idle`, `thinking`, `happy`, `love`, `dizzy`, `annoyed`, `sleeping`, `error`).
 - 💬 **Live Partner Chat (Badsha 👤 ⟷ Ayzil 💖)**:
   - Sub-50ms real-time peer-to-peer messaging via Supabase Realtime broadcast.
+  - 🌙 **24/7 Offline Cloud Storage**: Messages sent while your PC is off are safely stored and delivered the moment you turn on your PC.
   - Sound chimes (`blip.wav`, `greet.wav`) on incoming messages.
   - Unread count badge on the chat tab when collapsed.
   - Desktop native Windows notifications.
   - Live partner presence indicator (🟢 Online).
 - 📅 **Daily Content Calendar & Schedule**:
   - Assigned task management between creator couples ("Me" vs "Her").
-  - Instant task creation, completion chimes (`finish.wav`), and cross-PC live synchronization.
+  - Instant task creation, completion chimes (`finish.wav`), and cross-PC live synchronization (including offline task catch-up).
 - 🎙️ **AI Voice & Assistant (Multi-LLM)**:
   - Connect your favorite free or pro AI: **Google Gemini** (`gemini-2.5-flash`), **Groq** (`openai/gpt-oss-120b`), or **OpenRouter**.
   - Natural speech input and Windows SAPI native voice readouts.
@@ -144,6 +145,79 @@ You do **NOT** need to edit any code files to configure Mochi. Everything is set
    - Use the **✕** button to delete shortcuts you don't need, or add new ones with **Add Custom App**.
 6. **Startup Mode**:
    - Toggle **Startup Mode** to **ON** to have Mochi automatically start when your PC turns on.
+
+---
+
+## 🌙 24/7 Offline Sync (Supabase Cloud Setup)
+
+Mochi includes a **24/7 Cloud Mailbox** so you and your partner never miss a message or task update, even when one person is sleeping or has their PC completely shut down:
+- **Nighttime / Offline Delivery**: If your partner messages you or plans your day's schedule while your computer is turned off, Mochi automatically retrieves them the exact second your computer boots up in the morning.
+- **Dual-Layer Resilience**: Works via Supabase PostgreSQL tables (`mochi_messages`, `mochi_tasks`) and auto-recovers through peer catch-up.
+
+### ⚡ 30-Second Setup Instructions
+
+1. Go to your free project at [supabase.com](https://supabase.com/).
+2. On the left navigation bar, click **SQL Editor**.
+3. Click **+ New query**, paste the following script, and click **Run**:
+
+```sql
+-- 1. Create table for persistent messages (delivered even when PC was off)
+create table if not exists public.mochi_messages (
+  id text primary key,
+  channel text not null default 'coucou-badsha-ayzil',
+  sender text not null,
+  recipient text not null,
+  text text not null,
+  timestamp bigint not null,
+  is_ai_generated boolean default false,
+  read boolean default false,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 2. Create table for shared couple tasks & schedule
+create table if not exists public.mochi_tasks (
+  id text primary key,
+  channel text not null default 'coucou-badsha-ayzil',
+  title text not null,
+  time text default '',
+  assignee text default '',
+  assigned_by text default '',
+  completed boolean default false,
+  created_at bigint default (extract(epoch from now()) * 1000),
+  updated_at bigint default (extract(epoch from now()) * 1000)
+);
+
+-- 3. Enable Row Level Security (RLS)
+alter table public.mochi_messages enable row level security;
+alter table public.mochi_tasks enable row level security;
+
+-- 4. Create policies to allow read and write via Anon key
+drop policy if exists "Allow all on mochi_messages" on public.mochi_messages;
+create policy "Allow all on mochi_messages" on public.mochi_messages for all using (true) with check (true);
+
+drop policy if exists "Allow all on mochi_tasks" on public.mochi_tasks;
+create policy "Allow all on mochi_tasks" on public.mochi_tasks for all using (true) with check (true);
+
+-- 5. Enable Supabase Realtime broadcast for database changes
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables 
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'mochi_messages'
+  ) then
+    alter publication supabase_realtime add table public.mochi_messages;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables 
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'mochi_tasks'
+  ) then
+    alter publication supabase_realtime add table public.mochi_tasks;
+  end if;
+end $$;
+```
+
+4. In Mochi Settings (⚙️), under **Live PC-to-PC Sync**, verify that the status badge turns **🟢 24/7 Cloud Mailbox Active**.
 
 ---
 
