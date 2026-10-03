@@ -337,6 +337,7 @@ function supabaseSection(): HTMLElement {
         statusMsg.textContent = "🟢 Connected! Supabase WebSockets active (<50ms latency).";
         statusMsg.style.color = "#22c55e";
         statusDotEl.style.background = "#22c55e";
+        void updateCloudStatus();
       } else {
         statusMsg.textContent = `🔴 Connection failed: ${res?.error || "Unknown error"}`;
         statusMsg.style.color = "#f4505e";
@@ -353,6 +354,102 @@ function supabaseSection(): HTMLElement {
   }
 
   testBtn.addEventListener("click", () => void runTest());
+
+  // ── 24/7 Offline Cloud Sync Card ───────────────────────────────────────────
+  const offlineStatusDot = statusDot(false);
+  const offlineStatusTitle = h("span", {
+    style: "font-weight:600;font-size:12.5px;color:var(--ink);",
+    text: "Checking 24/7 offline cloud storage...",
+  });
+
+  const offlineDesc = h("div", {
+    style: "font-size:12px;color:var(--dim);line-height:1.55;",
+    text: "When 24/7 offline storage is active, any message she sends or task she adds while your PC is completely turned off will be delivered the instant your computer boots up.",
+  });
+
+  const copySqlBtn = h("button", {
+    class: "secondary",
+    style: "font-size:12px;padding:6px 14px;display:flex;align-items:center;gap:6px;",
+    text: "📋 Copy 1-Click SQL Setup",
+  });
+
+  const checkCloudBtn = h("button", {
+    class: "secondary",
+    style: "font-size:12px;padding:6px 14px;",
+    text: "🔄 Refresh Cloud Status",
+  });
+
+  const sqlSteps = h(
+    "div",
+    {
+      style:
+        "display:none;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:10px 12px;font-size:11.5px;color:var(--dim);line-height:1.6;margin-top:4px;",
+    },
+    h("div", { style: "font-weight:600;color:var(--ink);margin-bottom:2px;", text: "How to enable 24/7 offline delivery in 30 seconds:" }),
+    h("div", { text: "1. Click '📋 Copy 1-Click SQL Setup' above." }),
+    h("div", { text: "2. Open supabase.com ➔ your project ➔ click 'SQL Editor' on the left menu." }),
+    h("div", { text: "3. Click '+ New Query', paste the code, and click 'Run'!" }),
+    h("div", { text: "4. Return here and click '🔄 Refresh Cloud Status' to verify." })
+  );
+
+  async function updateCloudStatus() {
+    try {
+      const res = await Bridge.checkSupabaseCloudStatus();
+      if (res && res.ready) {
+        offlineStatusDot.style.background = "#22c55e";
+        offlineStatusTitle.textContent = "🟢 24/7 Cloud Mailbox Active (Never Miss a Message)";
+        offlineStatusTitle.style.color = "#22c55e";
+        offlineDesc.textContent =
+          "✅ Connected! All messages and tasks are stored 24/7 in your private Supabase database. You and Ayzil will receive all messages and task updates even if one of your PCs was shut down or offline!";
+        sqlSteps.style.display = "none";
+        copySqlBtn.style.display = "none";
+      } else {
+        offlineStatusDot.style.background = "#f5a524";
+        offlineStatusTitle.textContent = "🟡 Realtime & Peer Sync Active (24/7 Cloud Tables Not Set Up Yet)";
+        offlineStatusTitle.style.color = "#f5a524";
+        offlineDesc.textContent =
+          "Live chat works while both PCs are on. To receive messages and tasks sent while your computer is completely shut down, copy the 1-click SQL setup script below and run it once in your Supabase SQL Editor.";
+        sqlSteps.style.display = "block";
+        copySqlBtn.style.display = "inline-flex";
+      }
+    } catch {
+      offlineStatusDot.style.background = "#9398a1";
+      offlineStatusTitle.textContent = "Offline cloud status unavailable";
+    }
+  }
+
+  copySqlBtn.addEventListener("click", async () => {
+    try {
+      const sql = await Bridge.getSupabaseSqlSetup();
+      if (sql) {
+        await navigator.clipboard.writeText(sql);
+        copySqlBtn.textContent = "✅ Copied to Clipboard!";
+        setTimeout(() => {
+          copySqlBtn.textContent = "📋 Copy 1-Click SQL Setup";
+        }, 3000);
+      }
+    } catch (e: any) {
+      alert("Could not copy to clipboard: " + e.message);
+    }
+  });
+
+  checkCloudBtn.addEventListener("click", () => void updateCloudStatus());
+
+  setTimeout(() => {
+    void updateCloudStatus();
+  }, 300);
+
+  const offlineCard = h(
+    "div",
+    {
+      style:
+        "background:rgba(255,255,255,0.03);border:1px solid var(--hairline);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;margin-top:6px;",
+    },
+    h("div", { style: "display:flex;align-items:center;gap:8px;" }, offlineStatusDot, offlineStatusTitle),
+    offlineDesc,
+    h("div", { style: "display:flex;align-items:center;gap:8px;margin-top:2px;" }, copySqlBtn, checkCloudBtn),
+    sqlSteps
+  );
 
   // Quick 2-Minute Setup Guide card
   const guideCard = h(
@@ -389,6 +486,7 @@ function supabaseSection(): HTMLElement {
     h("div", { class: "row" }, h("label", { text: "Anon Public Key" }), keyInput),
     h("div", { class: "row", style: "gap:10px;margin-top:4px;" }, saveBtn, testBtn),
     statusMsg,
+    offlineCard,
     guideCard
   );
 

@@ -12,13 +12,23 @@ const {
   uploadFileWithToken,
 } = require("./gdrive");
 const {
+  SUPABASE_SQL_SETUP,
   testSupabaseConnection,
+  checkCloudStorageReady,
   initSupabase,
   disconnectSupabase,
   broadcastFileShared,
   broadcastScheduleUpdate,
   broadcastChatMessage,
   broadcastRemoteAccess,
+  broadcastSyncRequest,
+  broadcastSyncResponse,
+  saveChatMessageToCloud,
+  fetchOfflineChatMessages,
+  saveTaskToCloud,
+  saveAllTasksToCloud,
+  deleteTaskFromCloud,
+  fetchOfflineTasks,
 } = require("./supabase");
 
 const {
@@ -418,6 +428,77 @@ function startSupabaseSync() {
       if (overlayWin && !overlayWin.isDestroyed()) {
         overlayWin.webContents.send("partner-presence", { online: partnerOnline, partnerName: partnerUserName });
       }
+      if (partnerOnline) {
+        // Partner is online — request catch-up sync in case messages were sent while asleep
+        const history = loadChatHistory();
+        const lastChatTime = history.length > 0 ? history[history.length - 1].timestamp : 0;
+        broadcastSyncRequest({
+          lastChatTimestamp: lastChatTime,
+          senderName: currentUserName,
+        });
+      }
+    },
+    onSyncRequest: (payload) => {
+      console.log("[Supabase Sync] Partner requested peer catch-up sync:", payload?.senderName);
+      const history = loadChatHistory();
+      const since = payload?.lastChatTimestamp || 0;
+      const missedMessages = history.filter((m) => (m.timestamp || 0) > since);
+      broadcastSyncResponse({
+        messages: missedMessages,
+        schedule: activeSchedule,
+        senderName: currentUserName,
+      });
+    },
+    onSyncResponse: (payload) => {
+      if (!payload) return;
+      console.log("[Supabase Sync] Received catch-up response from partner:", payload?.senderName);
+      if (Array.isArray(payload.messages) && payload.messages.length > 0) {
+        const history = loadChatHistory();
+        const existingIds = new Set(history.map((m) => m.id));
+        let added = 0;
+        let lastMsg = null;
+        for (const m of payload.messages) {
+          if (!existingIds.has(m.id)) {
+            const isFromPartner = (m.sender || "").toLowerCase() !== currentUserName.toLowerCase();
+            history.push({ ...m, read: !isFromPartner });
+            existingIds.add(m.id);
+            if (isFromPartner) {
+              added++;
+              lastMsg = m;
+            }
+          }
+        }
+        if (added > 0) {
+          saveChatHistory(history);
+          if (overlayWin && !overlayWin.isDestroyed() && lastMsg) {
+            overlayWin.webContents.send("partner-chat-received", lastMsg);
+          }
+          if (Notification.isSupported() && lastMsg) {
+            try {
+              const notif = new Notification({
+                title: `💬 ${lastMsg.sender} (${added} missed message${added > 1 ? "s" : ""})`,
+                body: lastMsg.text,
+                icon: path.join(__dirname, "../assets/icon.png"),
+                silent: false,
+              });
+              notif.show();
+            } catch (e) {}
+          }
+        }
+      }
+
+      if (Array.isArray(payload.schedule) && payload.schedule.length > 0) {
+        const taskMap = new Map();
+        for (const t of activeSchedule) taskMap.set(t.id, t);
+        for (const t of payload.schedule) {
+          if (!taskMap.has(t.id)) taskMap.set(t.id, t);
+        }
+        activeSchedule = Array.from(taskMap.values());
+        saveSchedule(activeSchedule);
+        if (overlayWin && !overlayWin.isDestroyed()) {
+          overlayWin.webContents.send("schedule-updated", activeSchedule);
+        }
+      }
     },
     onRemoteAccess: (payload) => {
       console.log("[Supabase Sync] Incoming remote_access:", payload?.action, "from:", payload?.sender);
@@ -494,6 +575,98 @@ function startSupabaseSync() {
       }
     },
   });
+
+  // ── Automatic 24/7 Offline Catch-Up on Boot / Reconnect ────────────────────
+  const channel = activeSettings.shareChannel || "coucou-badsha-ayzil";
+  setTimeout(async () => {
+    try {
+      // 1. Cloud Database Catch-up (pull messages and tasks stored while PC was offline)
+      const cloudReady = await checkCloudStorageReady();
+      if (cloudReady.ready) {
+        console.log("[Supabase Cloud DB] Cloud tables active. Fetching offline messages & tasks...");
+        const cloudMessages = await fetchOfflineChatMessages(channel);
+        if (Array.isArray(cloudMessages) && cloudMessages.length > 0) {
+          const history = loadChatHistory();
+          const existingIds = new Set(history.map((m) => m.id));
+          let newCount = 0;
+          let latestNewMsg = null;
+
+          for (const msg of cloudMessages) {
+            if (!existingIds.has(msg.id)) {
+              const isFromPartner = (msg.sender || "").toLowerCase() !== currentUserName.toLowerCase();
+              history.push({
+                ...msg,
+                read: !isFromPartner ? true : false,
+              });
+              existingIds.add(msg.id);
+              if (isFromPartner) {
+                newCount++;
+                latestNewMsg = msg;
+              }
+            }
+          }
+
+          if (newCount > 0) {
+            console.log(`[Supabase Cloud DB] Restored ${newCount} offline chat message(s)!`);
+            saveChatHistory(history);
+            if (overlayWin && !overlayWin.isDestroyed() && latestNewMsg) {
+              overlayWin.webContents.send("partner-chat-received", latestNewMsg);
+            }
+            if (Notification.isSupported() && latestNewMsg) {
+              try {
+                const notif = new Notification({
+                  title: `💬 ${latestNewMsg.sender} (${newCount} new message${newCount > 1 ? "s" : ""})`,
+                  body: latestNewMsg.text,
+                  icon: path.join(__dirname, "../assets/icon.png"),
+                  silent: false,
+                });
+                notif.on("click", () => {
+                  if (overlayWin && !overlayWin.isDestroyed()) {
+                    isCollapsed = false;
+                    overlayWin.show();
+                    overlayWin.focus();
+                    overlayWin.webContents.send("open-couple-chat");
+                  }
+                });
+                notif.show();
+              } catch (err) {}
+            }
+          }
+        }
+
+        // Catch-up tasks from cloud
+        const cloudTasks = await fetchOfflineTasks(channel);
+        if (Array.isArray(cloudTasks) && cloudTasks.length > 0) {
+          console.log(`[Supabase Cloud DB] Syncing ${cloudTasks.length} task(s) from cloud...`);
+          const taskMap = new Map();
+          for (const t of activeSchedule) {
+            taskMap.set(t.id, t);
+          }
+          for (const ct of cloudTasks) {
+            const local = taskMap.get(ct.id);
+            if (!local || (ct.updatedAt && ct.updatedAt > (local.updatedAt || local.createdAt || 0))) {
+              taskMap.set(ct.id, ct);
+            }
+          }
+          activeSchedule = Array.from(taskMap.values());
+          saveSchedule(activeSchedule);
+          if (overlayWin && !overlayWin.isDestroyed()) {
+            overlayWin.webContents.send("schedule-updated", activeSchedule);
+          }
+        }
+      }
+
+      // 2. Peer Catch-Up: Broadcast sync_request to partner
+      const history = loadChatHistory();
+      const lastChatTime = history.length > 0 ? history[history.length - 1].timestamp : 0;
+      await broadcastSyncRequest({
+        lastChatTimestamp: lastChatTime,
+        senderName: currentUserName,
+      });
+    } catch (catchErr) {
+      console.warn("[Supabase Sync] Catch-up error:", catchErr);
+    }
+  }, 1000);
 }
 
 // Mouse tracking and click-through
@@ -1378,6 +1551,7 @@ async function processAITags(text) {
         history.push(newMsg);
         saveChatHistory(history);
         broadcastChatMessage(newMsg).catch(() => {});
+        saveChatMessageToCloud(newMsg, activeSettings.shareChannel || "coucou-badsha-ayzil").catch(() => {});
         if (overlayWin && !overlayWin.isDestroyed()) {
           overlayWin.webContents.send("partner-chat-received", newMsg);
         }
@@ -1438,6 +1612,14 @@ ipcMain.handle("test-supabase", async (_event, creds) => {
   });
 });
 
+ipcMain.handle("check-supabase-cloud-status", async () => {
+  return await checkCloudStorageReady();
+});
+
+ipcMain.handle("get-supabase-sql-setup", () => {
+  return SUPABASE_SQL_SETUP;
+});
+
 ipcMain.handle("get-chat-messages", () => {
   return loadChatHistory();
 });
@@ -1483,12 +1665,18 @@ ipcMain.handle("send-chat-message", async (_event, arg) => {
   history.push(msg);
   saveChatHistory(history);
 
+  // 1. Fast Realtime WebSockets broadcast (<50ms)
   try {
     await broadcastChatMessage(msg);
     console.log(`[Supabase Realtime] Sent chat message from ${myName}: "${cleanText}"`);
   } catch (err) {
     console.warn("[Supabase Realtime] Chat send error:", err);
   }
+
+  // 2. 24/7 Persistent Cloud DB save (so partner receives when booting up even if offline right now)
+  try {
+    await saveChatMessageToCloud(msg, activeSettings.shareChannel || "coucou-badsha-ayzil");
+  } catch (cloudErr) {}
 
   return msg;
 });
@@ -2535,6 +2723,11 @@ async function syncScheduleToPartner() {
   } catch (err) {
     console.warn("[Schedule Sync] Broadcast error:", err.message);
   }
+
+  // 3. 24/7 Persistent Cloud Database save (so offline partner gets it on boot)
+  try {
+    await saveAllTasksToCloud(activeSchedule, activeSettings.shareChannel || "coucou-badsha-ayzil");
+  } catch (dbErr) {}
 }
 
 async function checkRemoteScheduleUpdates() {
@@ -2583,6 +2776,9 @@ ipcMain.handle("delete-schedule-item", (_event, id) => {
   activeSchedule = activeSchedule.filter((s) => s.id !== id);
   saveSchedule(activeSchedule);
   syncScheduleToPartner();
+  try {
+    deleteTaskFromCloud(id, activeSettings.shareChannel || "coucou-badsha-ayzil");
+  } catch (e) {}
   if (overlayWin && !overlayWin.isDestroyed()) {
     overlayWin.webContents.send("schedule-updated", activeSchedule);
   }

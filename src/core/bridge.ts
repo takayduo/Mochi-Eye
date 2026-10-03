@@ -36,6 +36,8 @@ declare global {
       selectOAuthClient?(): Promise<{ success: boolean; canceled?: boolean; clientId?: string; clientSecret?: string; error?: string }>;
       getPathForFile?(file: any): string;
       testSupabase?(creds: { url: string; key: string }): Promise<{ success: boolean; error?: string }>;
+      checkSupabaseCloudStatus?(): Promise<{ ready: boolean; error?: string; code?: string }>;
+      getSupabaseSqlSetup?(): Promise<string>;
 
       getSchedule(): Promise<ScheduleItem[]>;
       saveScheduleItem(item: ScheduleItem): Promise<ScheduleItem[]>;
@@ -308,6 +310,16 @@ export const Bridge = {
   testSupabase: async (creds: { url: string; key: string }): Promise<{ success: boolean; error?: string }> => {
     if (window.electronAPI?.testSupabase) return await window.electronAPI.testSupabase(creds);
     return { success: false, error: "Desktop bridge unavailable" };
+  },
+
+  checkSupabaseCloudStatus: async (): Promise<{ ready: boolean; error?: string; code?: string }> => {
+    if (window.electronAPI?.checkSupabaseCloudStatus) return await window.electronAPI.checkSupabaseCloudStatus();
+    return { ready: false, error: "Desktop bridge unavailable" };
+  },
+
+  getSupabaseSqlSetup: async (): Promise<string> => {
+    if (window.electronAPI?.getSupabaseSqlSetup) return await window.electronAPI.getSupabaseSqlSetup();
+    return "";
   },
 
   // ── Schedule ──────────────────────────────────────────────────────────────

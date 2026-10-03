@@ -58,6 +58,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   secretClear: (key) => ipcRenderer.invoke("secret-clear", key),
 
   testSupabase: (creds) => ipcRenderer.invoke("test-supabase", creds),
+  checkSupabaseCloudStatus: () => ipcRenderer.invoke("check-supabase-cloud-status"),
+  getSupabaseSqlSetup: () => ipcRenderer.invoke("get-supabase-sql-setup"),
 
   // Live Partner Chat
   getChatMessages: () => ipcRenderer.invoke("get-chat-messages"),
