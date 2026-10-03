@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "commit": "b20c4f801c83e7583fe37e3a886def932c35d6ad",
-  "commitDate": "2026-10-02T19:32:49Z",
-  "commitMessage": "fix(remote): resolve WebRTC connection failure by buffering early IPC signals and bundling pre-gathered ICE candidates"
+  "commit": "45c9733b9e930206127b6509a4a06df2084f5ae7",
+  "commitDate": "2026-10-03T16:32:02+05:30",
+  "commitMessage": "docs: add 24/7 offline Supabase cloud setup guide and SQL script to README"
 }
