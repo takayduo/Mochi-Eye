@@ -221,15 +221,20 @@ async function performUpdate(onProgress = () => {}) {
   }
 
   // 3. Rebuild frontend bundle with Vite
-  onProgress("Building updated application bundle...");
+  onProgress("Building updated application bundle (almost done)...");
   const viteBin = path.join(appDir, "node_modules", "vite", "bin", "vite.js");
   if (fs.existsSync(viteBin)) {
     try {
-      execSync(`"${process.execPath}" "${viteBin}" build`, { cwd: appDir, stdio: "ignore" });
+      execSync(`"${process.execPath}" "${viteBin}" build`, {
+        cwd: appDir,
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+        stdio: "ignore",
+        timeout: 30000,
+      });
     } catch (buildErr) {
-      console.warn("[Updater] Vite build error, attempting npm run build:", buildErr.message);
+      console.warn("[Updater] Direct vite build error, attempting npm run build:", buildErr.message);
       try {
-        execSync("npm run build", { cwd: appDir, stdio: "ignore" });
+        execSync("npm run build", { cwd: appDir, stdio: "ignore", timeout: 45000 });
       } catch (npmErr) {
         console.error("[Updater] Build failed:", npmErr);
       }
