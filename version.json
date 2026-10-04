@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "commit": "1e61f7e9aa2d732ff2cf0e317b12a9bdbaf7b523",
-  "commitDate": "2026-10-04T20:46:03+05:30",
-  "commitMessage": "fix(syntax): add missing closing brace in broadcastSyncResponse in supabase.js"
+  "commit": "fc756fe45db63105d56e1a687a1a2523efd1892b",
+  "commitDate": "2026-10-04T23:28:49+05:30",
+  "commitMessage": "fix(remote): fix multi-monitor selection, black screen stream reveal, and eliminate duplicate online pings"
 }
