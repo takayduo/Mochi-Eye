@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "commit": "de3d4074a1ea3ebd2b58d23b410dd59c255e9e29",
-  "commitDate": "2026-10-04T23:40:07+05:30",
-  "commitMessage": "perf(updater): add ELECTRON_RUN_AS_NODE and timeout to make updater bundle build instant"
+  "commit": "62fc88bc4a07c2ba6298ead256e383959887a2cd",
+  "commitDate": "2026-10-05T00:35:56+05:30",
+  "commitMessage": "perf(remote): ultra-low latency mouse tracking, rAF position conflation, and motion video encoding"
 }
