@@ -46,9 +46,27 @@ async function main() {
     State.notify();
   });
 
-  await onEvent<{ online: boolean; user?: string }>("partner-presence", (pres) => {
+  await onEvent<{ online: boolean; user?: string; partnerName?: string; justCameOnline?: boolean }>("partner-presence", (pres) => {
+    const wasOffline = !State.partnerOnline;
     State.partnerOnline = !!pres?.online;
     State.partnerLastSeen = Date.now();
+
+    const isMe = (State.settings.userRole || "me") === "me";
+    const partnerName = pres?.partnerName || pres?.user || (isMe ? State.settings.partnerName || "Ayzil" : State.settings.userName || "Badsha");
+
+    if (pres?.online && (pres?.justCameOnline || wasOffline)) {
+      if (State.settings.notifyPartnerOnline !== false) {
+        Sound.play("greet");
+        State.triggerEmote("love");
+        State.noteMessage = `💖 ${partnerName} is now online!`;
+        island.expand("note");
+        setTimeout(() => {
+          if (State.view === "note" && State.noteMessage?.includes("online")) {
+            island.collapse();
+          }
+        }, 4500);
+      }
+    }
     State.notify();
   });
 

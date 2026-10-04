@@ -112,6 +112,7 @@ export interface Settings {
   shareChannel: string;
   syncUrl: string;
   syncApiKey: string;
+  notifyPartnerOnline?: boolean;
   appPaths: Record<string, string>;
 }
 
@@ -159,6 +160,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shareChannel: "coucou-badsha-ayzil",
   syncUrl: "",
   syncApiKey: "",
+  notifyPartnerOnline: true,
   appPaths: {
     discord: "Discord",
     whatsapp: "WhatsApp",

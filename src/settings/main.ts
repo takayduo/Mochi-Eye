@@ -243,6 +243,11 @@ function coupleSection(): HTMLElement {
   partnerNameInput.addEventListener("change", savePartnerName);
   partnerNameInput.addEventListener("blur", savePartnerName);
 
+  const notifyOnlineToggle = toggle(settings.notifyPartnerOnline !== false, (on) => {
+    settings.notifyPartnerOnline = on;
+    void save();
+  });
+
   body.append(
     h("div", {
       class: "hint",
@@ -250,7 +255,25 @@ function coupleSection(): HTMLElement {
     }),
     h("div", { class: "row", style: "gap:10px" }, roleMe, roleHer),
     h("div", { class: "row" }, h("label", { text: "Creator Name (Me 👤)" }), userNameInput),
-    h("div", { class: "row" }, h("label", { text: "Partner Name (Her 💖)" }), partnerNameInput)
+    h("div", { class: "row" }, h("label", { text: "Partner Name (Her 💖)" }), partnerNameInput),
+    h(
+      "div",
+      {
+        class: "row",
+        style:
+          "display:flex;align-items:center;justify-content:space-between;padding:8px 0 4px;border-top:1px solid rgba(255,255,255,0.06);margin-top:4px;",
+      },
+      h(
+        "div",
+        { style: "display:flex;flex-direction:column;gap:3px;" },
+        h("label", { style: "font-weight:600;color:var(--ink);cursor:pointer;", text: "Notify when Partner comes online 🔔" }),
+        h(
+          "span",
+          { class: "hint", style: "margin:0;font-size:11.5px;color:rgba(255,255,255,0.5);", text: "Plays a sweet chime, hearts emote, and notification when your partner turns on their PC" }
+        )
+      ),
+      notifyOnlineToggle
+    )
   );
 
   return section;

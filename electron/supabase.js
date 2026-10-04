@@ -143,6 +143,7 @@ function initSupabase({
   onRemoteAccess,
   onSyncRequest,
   onSyncResponse,
+  onPartnerJoin,
 }) {
   if (!url || !key) return null;
 
@@ -254,6 +255,18 @@ function initSupabase({
       }
     });
 
+    // 8. Broadcast: Partner Online Join Announcement
+    realtimeChannel.on("broadcast", { event: "partner_join" }, ({ payload }) => {
+      console.log("[Supabase Realtime] Received partner_join event from:", payload?.senderName);
+      if (typeof onPartnerJoin === "function" && payload) {
+        try {
+          onPartnerJoin(payload);
+        } catch (e) {
+          console.warn("[Supabase Realtime] onPartnerJoin error:", e);
+        }
+      }
+    });
+
     // Subscribe and track self
     realtimeChannel.subscribe(async (status) => {
       console.log(`[Supabase Realtime] Subscription status for ${channelName}:`, status);
@@ -267,6 +280,21 @@ function initSupabase({
           });
         } catch (e) {
           console.warn("[Supabase Realtime] Presence track warning:", e);
+        }
+
+        // Announce presence immediately to partner
+        try {
+          await realtimeChannel.send({
+            type: "broadcast",
+            event: "partner_join",
+            payload: {
+              senderName: userName,
+              senderRole: userRole,
+              timestamp: Date.now(),
+            },
+          });
+        } catch (sendErr) {
+          console.warn("[Supabase Realtime] partner_join broadcast error:", sendErr);
         }
       }
     });
@@ -458,6 +486,25 @@ async function broadcastSyncResponse(payload) {
     return res === "ok";
   } catch (err) {
     console.warn("[Supabase Realtime] Broadcast sync_response error:", err);
+}
+
+/**
+ * Broadcasts partner join announcement.
+ */
+async function broadcastPartnerJoin(payload) {
+  if (!realtimeChannel) return false;
+  try {
+    const res = await realtimeChannel.send({
+      type: "broadcast",
+      event: "partner_join",
+      payload: {
+        ...payload,
+        timestamp: Date.now(),
+      },
+    });
+    return res === "ok";
+  } catch (err) {
+    console.warn("[Supabase Realtime] Broadcast partner_join error:", err);
     return false;
   }
 }
@@ -632,6 +679,7 @@ module.exports = {
   broadcastRemoteAccess,
   broadcastSyncRequest,
   broadcastSyncResponse,
+  broadcastPartnerJoin,
   saveChatMessageToCloud,
   fetchOfflineChatMessages,
   saveTaskToCloud,

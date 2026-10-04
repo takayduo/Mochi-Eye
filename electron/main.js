@@ -293,6 +293,55 @@ function saveChatHistory(history) {
 
 let activeRemoteRole = null;
 let pendingViewerSignals = [];
+let lastPartnerOnline = false;
+let lastPartnerOnlineNotifyTime = 0;
+
+function triggerPartnerOnlineNotification(partnerName) {
+  const isMe = (activeSettings.userRole || "me") === "me";
+  const rawPartner = isMe ? (activeSettings.partnerName || "Ayzil") : (activeSettings.userName || "Badsha");
+  const displayName = partnerName || (rawPartner.charAt(0).toUpperCase() + rawPartner.slice(1));
+
+  // Cooldown: prevent duplicate notifications within 15 seconds
+  const now = Date.now();
+  if (now - lastPartnerOnlineNotifyTime < 15000) {
+    return;
+  }
+  lastPartnerOnlineNotifyTime = now;
+
+  console.log(`[Supabase Sync] Triggering partner online notification for: ${displayName}`);
+
+  // 1. Notify overlay window (Mochi island will play sound and show love emote & note)
+  if (overlayWin && !overlayWin.isDestroyed()) {
+    overlayWin.webContents.send("partner-presence", {
+      online: true,
+      partnerName: displayName,
+      justCameOnline: true,
+    });
+  }
+
+  // 2. Windows Native Action Center notification
+  if (activeSettings.notifyPartnerOnline !== false && Notification.isSupported()) {
+    try {
+      const notif = new Notification({
+        title: `✨ ${displayName} is online! 💖`,
+        body: `${displayName} just opened Mochi and joined.`,
+        icon: path.join(__dirname, "../assets/icon.png"),
+        silent: false,
+      });
+      notif.on("click", () => {
+        if (overlayWin && !overlayWin.isDestroyed()) {
+          isCollapsed = false;
+          overlayWin.show();
+          overlayWin.focus();
+          overlayWin.webContents.send("open-couple-chat");
+        }
+      });
+      notif.show();
+    } catch (notifErr) {
+      console.warn("[Supabase Sync] Partner online notification error:", notifErr);
+    }
+  }
+}
 
 function startSupabaseSync() {
   if (!activeSettings.syncUrl || !activeSettings.syncApiKey) {
@@ -425,9 +474,12 @@ function startSupabaseSync() {
       }
 
       console.log(`[Supabase Sync] Partner online status: ${partnerOnline}`);
-      if (overlayWin && !overlayWin.isDestroyed()) {
-        overlayWin.webContents.send("partner-presence", { online: partnerOnline, partnerName: partnerUserName });
+      if (partnerOnline && !lastPartnerOnline) {
+        triggerPartnerOnlineNotification(partnerUserName);
+      } else if (overlayWin && !overlayWin.isDestroyed()) {
+        overlayWin.webContents.send("partner-presence", { online: partnerOnline, partnerName: partnerUserName, justCameOnline: false });
       }
+      lastPartnerOnline = partnerOnline;
       if (partnerOnline) {
         // Partner is online — request catch-up sync in case messages were sent while asleep
         const history = loadChatHistory();
@@ -498,6 +550,15 @@ function startSupabaseSync() {
         if (overlayWin && !overlayWin.isDestroyed()) {
           overlayWin.webContents.send("schedule-updated", activeSchedule);
         }
+      }
+    },
+    onPartnerJoin: (payload) => {
+      const myName = currentUserName.toLowerCase();
+      const senderName = (payload?.senderName || "").toLowerCase();
+      if (senderName && senderName !== myName) {
+        console.log(`[Supabase Sync] Received partner_join announcement from: ${payload?.senderName}`);
+        lastPartnerOnline = true;
+        triggerPartnerOnlineNotification(payload?.senderName || partnerUserName);
       }
     },
     onRemoteAccess: (payload) => {

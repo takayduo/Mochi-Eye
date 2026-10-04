@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "commit": "45c9733b9e930206127b6509a4a06df2084f5ae7",
-  "commitDate": "2026-10-03T16:32:02+05:30",
-  "commitMessage": "docs: add 24/7 offline Supabase cloud setup guide and SQL script to README"
+  "commit": "f13bb31dad54ab95c03922d4182f0b5fc238990c",
+  "commitDate": "2026-10-04T19:41:57+05:30",
+  "commitMessage": "feat(presence): notify when partner comes online with chime, emote, and Windows alert"
 }
