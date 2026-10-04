@@ -337,6 +337,8 @@
 
     let pendingHostCandidates = [];
     let hasSetRemoteDesc = false;
+    let queuedSignals = [];
+    let viewerGatheredCandidates = [];
 
     async function addCandidate(candidate) {
       if (!candidate) return;
@@ -351,17 +353,23 @@
       }
     }
 
-    let viewerGatheredCandidates = [];
-
     async function handleOffer(offer) {
-      if (!offer || !offer.sdp) return;
+      if (!offer || !offer.sdp || !peer) return;
       try {
         console.log("[RemoteViewer] Processing SDP Offer from partner...");
         loadingText.textContent = `Connecting to ${partnerName}'s desktop stream...`;
+
+        if (peer.signalingState !== "stable") {
+          console.warn("[RemoteViewer] Non-stable signaling state:", peer.signalingState, "rolling back");
+          try {
+            await peer.setLocalDescription({ type: "rollback" });
+          } catch (rbErr) {}
+        }
+
         await peer.setRemoteDescription(new RTCSessionDescription(offer));
         hasSetRemoteDesc = true;
 
-        // Apply any pre-gathered host candidates bundled directly into the offer
+        // Apply pre-gathered host candidates bundled in the offer
         if (offer.candidates && Array.isArray(offer.candidates)) {
           console.log("[RemoteViewer] Applying bundled host candidates count:", offer.candidates.length);
           for (const c of offer.candidates) {
@@ -369,20 +377,16 @@
           }
         }
 
-        // Flush any candidates that arrived before offer was set
+        // Flush queued host candidates
         while (pendingHostCandidates.length > 0) {
           const cand = pendingHostCandidates.shift();
-          try {
-            await peer.addIceCandidate(new RTCIceCandidate(cand));
-          } catch (e) {
-            console.warn("[RemoteViewer] Error flushing candidate:", e);
-          }
+          await addCandidate(cand);
         }
 
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
 
-        // Wait up to 500ms (or until complete) so viewer's STUN candidates are bundled
+        // Wait up to 600ms (or until complete) so viewer's STUN candidates are bundled
         await new Promise((resolve) => {
           let done = false;
           const finish = () => {
@@ -399,7 +403,7 @@
             if (peer.iceGatheringState === "complete") finish();
           };
           peer.addEventListener("icegatheringstatechange", checkState);
-          setTimeout(finish, 500);
+          setTimeout(finish, 600);
         });
 
         window.viewerAPI.sendSignal({
@@ -410,26 +414,41 @@
         console.log("[RemoteViewer] Sent SDP Answer with bundled candidates count:", viewerGatheredCandidates.length);
       } catch (err) {
         console.error("[RemoteViewer] handleOffer error:", err);
-        loadingText.textContent = "Negotiation failed: " + err.message;
+        loadingText.textContent = "Negotiation error: " + err.message;
       }
+    }
+
+    async function routeSignal(signal) {
+      if (!signal) return;
+      if (!peer) {
+        queuedSignals.push(signal);
+        return;
+      }
+      try {
+        if (signal.type === "offer") {
+          await handleOffer(signal);
+        } else if (signal.type === "candidate") {
+          await addCandidate(signal.candidate);
+        } else if (signal.type === "resolution") {
+          remoteResolution = signal.resolution;
+        }
+      } catch (e) {
+        console.warn("[RemoteViewer] routeSignal error:", e);
+      }
+    }
+
+    function revealVideo() {
+      console.log("[RemoteViewer] Video feed is active, revealing live stream!");
+      loadingOverlay.classList.add("done");
+      pingToolbar();
+      video.focus();
     }
 
     async function initWebRTC() {
       try {
-        // 1. Immediately register listener for main process signals so buffer drains
-        window.viewerAPI.on("viewer-signal", async (signal) => {
-          if (!peer || !signal) return;
-          try {
-            if (signal.type === "offer") {
-              await handleOffer(signal);
-            } else if (signal.type === "candidate") {
-              await addCandidate(signal.candidate);
-            } else if (signal.type === "resolution") {
-              remoteResolution = signal.resolution;
-            }
-          } catch (sigErr) {
-            console.warn("[RemoteViewer] Signal handling error:", sigErr);
-          }
+        // 1. Immediately register listener for main process signals so no signals are dropped
+        window.viewerAPI.on("viewer-signal", (signal) => {
+          void routeSignal(signal);
         });
 
         const info = await window.viewerAPI.getPartnerInfo();
@@ -451,35 +470,43 @@
           setupChannel(e.channel);
         };
 
+        // Robust track assignment supporting streams array and individual tracks
         peer.ontrack = (e) => {
-          console.log("[RemoteViewer] Received remote track:", e.streams);
+          console.log("[RemoteViewer] Received remote track:", e.track ? e.track.kind : "unknown", e.streams);
           if (e.streams && e.streams[0]) {
             video.srcObject = e.streams[0];
-            video.play().catch((err) => {
-              console.warn("[RemoteViewer] video.play() error:", err);
-            });
+          } else {
+            let stream = video.srcObject;
+            if (!stream || !(stream instanceof MediaStream)) {
+              stream = new MediaStream();
+              video.srcObject = stream;
+            }
+            stream.addTrack(e.track);
           }
+          video.play().catch((err) => {
+            console.warn("[RemoteViewer] video.play() error:", err);
+          });
         };
 
-        // Reveal the stream when video begins playing frames
-        video.addEventListener("playing", () => {
-          console.log("[RemoteViewer] Video feed is rendering live frames!");
-          loadingOverlay.classList.add("done");
-          pingToolbar();
-          video.focus();
-        });
-
-        video.addEventListener("loadeddata", () => {
-          console.log("[RemoteViewer] Video loaded data");
-          loadingOverlay.classList.add("done");
+        // Multiple event listeners to reveal live video as early as possible
+        video.addEventListener("playing", revealVideo);
+        video.addEventListener("loadeddata", revealVideo);
+        video.addEventListener("loadedmetadata", () => {
+          revealVideo();
           video.play().catch(() => {});
         });
-
         video.addEventListener("canplay", () => {
-          console.log("[RemoteViewer] Video canplay");
-          loadingOverlay.classList.add("done");
+          revealVideo();
           video.play().catch(() => {});
         });
+
+        // Polling fallback: if video is rendering frames, force reveal
+        const checkInterval = setInterval(() => {
+          if (video.videoWidth > 0 && video.videoHeight > 0) {
+            revealVideo();
+            clearInterval(checkInterval);
+          }
+        }, 350);
 
         let iceCheckingTimer = null;
         peer.oniceconnectionstatechange = () => {
@@ -490,16 +517,17 @@
             if (iceCheckingTimer) clearTimeout(iceCheckingTimer);
             iceCheckingTimer = setTimeout(() => {
               if (peer && (peer.iceConnectionState === "checking" || peer.iceConnectionState === "disconnected")) {
-                console.warn("[RemoteViewer] Still checking after 7s, requesting refreshed route...");
+                console.warn("[RemoteViewer] Still checking after 6s, requesting refreshed route...");
                 loadingText.textContent = "Optimizing route to partner...";
                 try {
                   window.viewerAPI.sendSignal({ type: "ready" });
                 } catch (e) {}
               }
-            }, 7000);
+            }, 6000);
           } else if (st === "connected" || st === "completed") {
             if (iceCheckingTimer) clearTimeout(iceCheckingTimer);
             loadingText.textContent = "Media route active! Starting display...";
+            video.play().catch(() => {});
           } else if (st === "failed") {
             if (iceCheckingTimer) clearTimeout(iceCheckingTimer);
             console.warn("[RemoteViewer] ICE failed, attempting restart...");
@@ -518,6 +546,7 @@
           console.log("[RemoteViewer] Peer connection state:", st);
           if (st === "connected") {
             loadingText.textContent = "Connected! Rendering desktop...";
+            video.play().catch(() => {});
           } else if (st === "failed") {
             loadingText.textContent = "Connection to partner failed. Please end session and retry.";
             loadingOverlay.classList.remove("done");
@@ -528,9 +557,17 @@
           if (e.candidate) {
             const c = e.candidate.toJSON ? e.candidate.toJSON() : e.candidate;
             viewerGatheredCandidates.push(c);
-            window.viewerAPI.sendSignal({ type: "candidate", candidate: c });
+            if (hasSetRemoteDesc) {
+              window.viewerAPI.sendSignal({ type: "candidate", candidate: c });
+            }
           }
         };
+
+        // Drain any signals that arrived while peer was being constructed
+        while (queuedSignals.length > 0) {
+          const sig = queuedSignals.shift();
+          await routeSignal(sig);
+        }
 
         // If host's initial offer was passed during window creation, process it immediately!
         if (info && info.initialOffer) {
@@ -545,6 +582,14 @@
 
         // Notify host that viewer window is ready
         window.viewerAPI.sendSignal({ type: "ready" });
+
+        // Backup retry: If after 5s video is still not showing, re-signal ready
+        setTimeout(() => {
+          if (!loadingOverlay.classList.contains("done") && peer && peer.iceConnectionState !== "connected") {
+            console.log("[RemoteViewer] 5s check: Stream not yet active, pinging host ready signal...");
+            window.viewerAPI.sendSignal({ type: "ready" });
+          }
+        }, 5000);
       } catch (err) {
         console.error("[RemoteViewer] Init error:", err);
         loadingText.textContent = "Connection failed: " + err.message;

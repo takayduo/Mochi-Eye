@@ -124,28 +124,71 @@ function stopInputInjector() {
   }
 }
 
+let currentHostDisplayBounds = null;
+
 /**
- * Gets the primary display screen source ID for WebRTC capture.
+ * Sets the active host monitor bounds and updates InputInjector.
  */
-async function getPrimaryScreenSource() {
+function setHostDisplayBounds(bounds) {
+  if (!bounds) return;
+  currentHostDisplayBounds = bounds;
+  injectInput(`bounds ${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
+}
+
+/**
+ * Gets all available screen sources mapped to their displays with friendly labels.
+ */
+async function getAvailableScreens() {
   try {
     const sources = await desktopCapturer.getSources({
       types: ["screen"],
       thumbnailSize: { width: 0, height: 0 },
     });
-    if (sources.length > 0) {
-      // Match primary display if possible
-      const primaryDisplay = screen.getPrimaryDisplay();
-      const matched = sources.find((s) => s.display_id === String(primaryDisplay.id)) || sources[0];
+    const allDisplays = screen.getAllDisplays();
+    const primaryDisplay = screen.getPrimaryDisplay();
+
+    return sources.map((source, index) => {
+      // Find matching display: match display_id or match by index
+      let matchedDisplay = allDisplays.find((d) => String(d.id) === String(source.display_id));
+      if (!matchedDisplay) {
+        matchedDisplay = allDisplays[index] || primaryDisplay;
+      }
+      const isPrimary = matchedDisplay.id === primaryDisplay.id;
       return {
-        id: matched.id,
-        name: matched.name,
-        width: primaryDisplay.bounds.width,
-        height: primaryDisplay.bounds.height,
+        id: source.id,
+        displayId: matchedDisplay.id,
+        name: source.name || `Screen ${index + 1}`,
+        label: `${source.name || `Screen ${index + 1}`} (${matchedDisplay.bounds.width}x${matchedDisplay.bounds.height}${isPrimary ? " - Primary" : ""})`,
+        bounds: matchedDisplay.bounds,
+        width: matchedDisplay.bounds.width,
+        height: matchedDisplay.bounds.height,
+        isPrimary,
+      };
+    });
+  } catch (err) {
+    console.error("[RemoteAccess] Failed to get available screen sources:", err);
+    return [];
+  }
+}
+
+/**
+ * Gets the primary display screen source ID for WebRTC capture.
+ */
+async function getPrimaryScreenSource() {
+  try {
+    const screens = await getAvailableScreens();
+    if (screens.length > 0) {
+      const primary = screens.find((s) => s.isPrimary) || screens[0];
+      return {
+        id: primary.id,
+        name: primary.name,
+        width: primary.width,
+        height: primary.height,
+        bounds: primary.bounds,
       };
     }
   } catch (err) {
-    console.error("[RemoteAccess] Failed to get screen sources:", err);
+    console.error("[RemoteAccess] Failed to get primary screen source:", err);
   }
   return null;
 }
@@ -224,7 +267,9 @@ module.exports = {
   startInputInjector,
   injectInput,
   stopInputInjector,
+  getAvailableScreens,
   getPrimaryScreenSource,
+  setHostDisplayBounds,
   createRemoteViewerWindow,
   getRemoteViewerWindow,
   getViewerInitData,

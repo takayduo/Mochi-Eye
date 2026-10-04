@@ -51,12 +51,30 @@ export function buildRemoteControl(actions: ViewActions): ViewHost {
     return (rawPartner.charAt(0).toUpperCase() + rawPartner.slice(1)) || "Partner";
   }
 
+  let availableScreens: Array<{ id: string; displayId?: number; name: string; label: string; bounds: { x: number; y: number; width: number; height: number }; width: number; height: number; isPrimary: boolean }> = [];
+  let selectedScreenId = "";
+  let isLoadingScreens = false;
+
   function renderState() {
     clear(contentArea);
     const partnerName = getPartnerName();
     const status = State.remoteAccessStatus;
 
     if (status === "incoming_request") {
+      // Fetch available screens if not already loaded
+      if (availableScreens.length === 0 && !isLoadingScreens) {
+        isLoadingScreens = true;
+        void Bridge.getAvailableScreens().then((screens) => {
+          isLoadingScreens = false;
+          if (screens && screens.length > 0) {
+            availableScreens = screens;
+            const primary = screens.find((s) => s.isPrimary) || screens[0];
+            selectedScreenId = primary ? primary.id : screens[0].id;
+            renderState();
+          }
+        });
+      }
+
       // Incoming request from partner!
       const requester = State.remoteRequesterName || partnerName;
       const title = h("div", { style: "font-size:13.5px;font-weight:700;color:#60a5fa;", text: "🖥️ Remote Access Request" });
@@ -65,6 +83,34 @@ export function buildRemoteControl(actions: ViewActions): ViewHost {
         text: `${requester} wants to remotely control your PC. You can watch and end the session anytime.`,
       });
 
+      let monitorSection: HTMLElement | null = null;
+      if (availableScreens.length > 1) {
+        const monLabel = h("div", {
+          style: "font-size:11px;font-weight:600;color:var(--ink);margin-top:4px;display:flex;align-items:center;gap:4px;",
+          text: "🖥️ Choose Monitor to Share:",
+        });
+
+        const monSelect = h("select", {
+          style: "width:100%;max-width:240px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);border-radius:10px;color:#f4f4f5;padding:5px 8px;font-size:11px;outline:none;cursor:pointer;",
+        }) as HTMLSelectElement;
+
+        for (const scr of availableScreens) {
+          const opt = h("option", {
+            value: scr.id,
+            text: scr.label,
+            style: "background:#18181b;color:#f4f4f5;",
+          }) as HTMLOptionElement;
+          if (scr.id === selectedScreenId) opt.selected = true;
+          monSelect.append(opt);
+        }
+
+        monSelect.addEventListener("change", (e: any) => {
+          selectedScreenId = e.target.value;
+        });
+
+        monitorSection = h("div", { style: "display:flex;flex-direction:column;gap:3px;margin:2px 0;" }, monLabel, monSelect);
+      }
+
       const btnAccept = h(
         "button",
         {
@@ -72,17 +118,32 @@ export function buildRemoteControl(actions: ViewActions): ViewHost {
           style: "background:linear-gradient(135deg, #22c55e, #16a34a);color:#fff;border:none;padding:6px 14px;border-radius:14px;font-weight:600;font-size:12px;cursor:pointer;",
         },
         "Accept & Share Screen 🟢"
-      );
+      ) as HTMLButtonElement;
+
       btnAccept.addEventListener("click", async () => {
+        btnAccept.disabled = true;
+        btnAccept.textContent = "Connecting... ⏳";
         Sound.play("approve");
-        State.remoteAccessStatus = "active_host";
-        renderState();
-        State.notify();
-        const res = await startHostScreenSharing();
-        if (res && res.offer) {
-          await Bridge.respondRemoteAccess(true, { offer: res.offer, resolution: res.resolution });
+
+        const chosenScreen = availableScreens.find((s) => s.id === selectedScreenId) || availableScreens[0];
+        const res = await startHostScreenSharing(chosenScreen);
+
+        if (res && res.success && res.offer) {
+          State.remoteAccessStatus = "active_host";
+          renderState();
+          State.notify();
+          await Bridge.respondRemoteAccess(true, {
+            offer: res.offer,
+            resolution: res.resolution,
+            displayBounds: chosenScreen?.bounds,
+          });
         } else {
-          await Bridge.respondRemoteAccess(true);
+          State.remoteAccessStatus = "idle";
+          renderState();
+          State.notify();
+          Sound.play("blip");
+          State.noteMessage = "⚠️ Could not capture screen. Please retry.";
+          await Bridge.respondRemoteAccess(false);
         }
       });
 
@@ -103,7 +164,11 @@ export function buildRemoteControl(actions: ViewActions): ViewHost {
       });
 
       const btnRow = h("div", { style: "display:flex;align-items:center;gap:8px;margin-top:6px;" }, btnAccept, btnDecline);
-      contentArea.append(title, desc, btnRow);
+      if (monitorSection) {
+        contentArea.append(title, desc, monitorSection, btnRow);
+      } else {
+        contentArea.append(title, desc, btnRow);
+      }
       return;
     }
 

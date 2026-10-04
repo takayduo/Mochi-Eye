@@ -54,7 +54,7 @@ async function main() {
     const isMe = (State.settings.userRole || "me") === "me";
     const partnerName = pres?.partnerName || pres?.user || (isMe ? State.settings.partnerName || "Ayzil" : State.settings.userName || "Badsha");
 
-    if (pres?.online && (pres?.justCameOnline || wasOffline)) {
+    if (pres?.online && pres?.justCameOnline) {
       if (State.settings.notifyPartnerOnline !== false) {
         Sound.play("greet");
         State.triggerEmote("love");

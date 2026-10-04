@@ -49,10 +49,11 @@ declare global {
       markChatRead?(): Promise<boolean>;
 
       requestRemoteAccess?(): Promise<boolean>;
-      respondRemoteAccess?(accepted: boolean): Promise<boolean>;
+      respondRemoteAccess?(accepted: boolean, extra?: any): Promise<boolean>;
       sendRemoteSignal?(signal: any): Promise<boolean>;
       endRemoteAccess?(): Promise<boolean>;
-      getPrimaryScreenSource?(): Promise<{ id: string; name: string; width: number; height: number } | null>;
+      getAvailableScreens?(): Promise<Array<{ id: string; displayId?: number; name: string; label: string; bounds: { x: number; y: number; width: number; height: number }; width: number; height: number; isPrimary: boolean }>>;
+      getPrimaryScreenSource?(): Promise<{ id: string; name: string; width: number; height: number; bounds?: { x: number; y: number; width: number; height: number } } | null>;
       injectInput?(cmd: string): Promise<boolean>;
 
       checkForUpdates?(): Promise<{
@@ -382,7 +383,12 @@ export const Bridge = {
     return false;
   },
 
-  getPrimaryScreenSource: async (): Promise<{ id: string; name: string; width: number; height: number } | null> => {
+  getAvailableScreens: async (): Promise<Array<{ id: string; displayId?: number; name: string; label: string; bounds: { x: number; y: number; width: number; height: number }; width: number; height: number; isPrimary: boolean }>> => {
+    if (window.electronAPI?.getAvailableScreens) return await window.electronAPI.getAvailableScreens();
+    return [];
+  },
+
+  getPrimaryScreenSource: async (): Promise<{ id: string; name: string; width: number; height: number; bounds?: { x: number; y: number; width: number; height: number } } | null> => {
     if (window.electronAPI?.getPrimaryScreenSource) return await window.electronAPI.getPrimaryScreenSource();
     return null;
   },

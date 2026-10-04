@@ -1,4 +1,4 @@
-// Mochi Eye — Host Screen Sharing Engine (WebRTC + DXGI Capture)
+// Mochi Eye — Host Screen Sharing Engine (WebRTC + DXGI/WGC Capture)
 import { Bridge } from "../core/bridge";
 
 let hostPeer: RTCPeerConnection | null = null;
@@ -23,33 +23,66 @@ export interface HostStartResult {
   resolution?: { width: number; height: number };
 }
 
-export async function startHostScreenSharing(): Promise<HostStartResult> {
+export async function startHostScreenSharing(targetScreen?: {
+  id: string;
+  name?: string;
+  width?: number;
+  height?: number;
+  bounds?: { x: number; y: number; width: number; height: number };
+}): Promise<HostStartResult> {
   stopHostScreenSharing();
   hostGatheredCandidates = [];
   pendingViewerCandidates = [];
 
   try {
-    const source = await Bridge.getPrimaryScreenSource();
-    if (!source) {
-      console.error("[HostStream] No primary screen source available");
+    let source = targetScreen;
+    if (!source || !source.id) {
+      source = (await Bridge.getPrimaryScreenSource()) || undefined;
+    }
+    if (!source || !source.id) {
+      console.error("[HostStream] No screen source available for capture");
       return { success: false };
     }
 
-    console.log("[HostStream] Primary display source found:", source.id, `${source.width}x${source.height}`);
+    const screenWidth = source.bounds?.width || source.width || 1920;
+    const screenHeight = source.bounds?.height || source.height || 1080;
 
-    // Capture screen via standard Chromium DXGI desktop capture
-    hostStream = await (navigator.mediaDevices as any).getUserMedia({
-      audio: false,
-      video: {
-        mandatory: {
-          chromeMediaSource: "desktop",
-          chromeMediaSourceId: source.id,
-          maxWidth: Math.min(2560, source.width || 1920),
-          maxHeight: Math.min(1440, source.height || 1080),
-          maxFrameRate: 60,
+    console.log(`[HostStream] Starting screen capture on source: ${source.id} (${source.name || "Screen"}) ${screenWidth}x${screenHeight}`);
+
+    // Try capturing with desktop source ID; fallback to minimal constraints if driver rejects
+    try {
+      hostStream = await (navigator.mediaDevices as any).getUserMedia({
+        audio: false,
+        video: {
+          mandatory: {
+            chromeMediaSource: "desktop",
+            chromeMediaSourceId: source.id,
+            maxWidth: Math.max(screenWidth, 1920),
+            maxHeight: Math.max(screenHeight, 1080),
+            maxFrameRate: 60,
+          },
         },
-      },
-    });
+      });
+    } catch (constraintErr) {
+      console.warn("[HostStream] Primary constraints rejected, trying minimal constraints:", constraintErr);
+      hostStream = await (navigator.mediaDevices as any).getUserMedia({
+        audio: false,
+        video: {
+          mandatory: {
+            chromeMediaSource: "desktop",
+            chromeMediaSourceId: source.id,
+          },
+        },
+      });
+    }
+
+    if (!hostStream || hostStream.getVideoTracks().length === 0) {
+      console.error("[HostStream] Failed to obtain video track from screen capture");
+      stopHostScreenSharing();
+      return { success: false };
+    }
+
+    console.log("[HostStream] Screen video track acquired successfully:", hostStream.getVideoTracks()[0].label);
 
     hostPeer = new RTCPeerConnection({
       iceServers: ICE_SERVERS,
@@ -92,7 +125,10 @@ export async function startHostScreenSharing(): Promise<HostStartResult> {
       if (e.candidate) {
         const c = e.candidate.toJSON ? e.candidate.toJSON() : e.candidate;
         hostGatheredCandidates.push(c);
-        void Bridge.sendRemoteSignal({ type: "candidate", candidate: c });
+        // Only trickle candidates if gathering already completed and remote description is set
+        if (hostPeer?.remoteDescription) {
+          void Bridge.sendRemoteSignal({ type: "candidate", candidate: c });
+        }
       }
     };
 
@@ -100,7 +136,7 @@ export async function startHostScreenSharing(): Promise<HostStartResult> {
     const offer = await hostPeer.createOffer();
     await hostPeer.setLocalDescription(offer);
 
-    // Wait up to 600ms (or until gathering completes) so all host & STUN candidates are pre-gathered
+    // Wait up to 700ms (or until gathering completes) so all host & STUN candidates are pre-gathered
     await new Promise<void>((resolve) => {
       let done = false;
       const finish = () => {
@@ -117,10 +153,10 @@ export async function startHostScreenSharing(): Promise<HostStartResult> {
         if (hostPeer?.iceGatheringState === "complete") finish();
       };
       hostPeer?.addEventListener("icegatheringstatechange", checkState);
-      setTimeout(finish, 600);
+      setTimeout(finish, 700);
     });
 
-    const resolution = { width: source.width || 1920, height: source.height || 1080 };
+    const resolution = { width: screenWidth, height: screenHeight };
     const offerPayload = {
       type: "offer",
       sdp: hostPeer.localDescription?.sdp || offer.sdp || "",
@@ -180,16 +216,13 @@ export async function handleHostSignal(signal: any): Promise<void> {
         pendingViewerCandidates.push(signal.candidate);
       }
     } else if (signal.type === "ready") {
-      console.log("[HostStream] Viewer reported ready! Re-sending SDP Offer & gathered candidates...");
+      console.log("[HostStream] Viewer reported ready! Re-sending SDP Offer & gathered candidates in single payload...");
       if (hostPeer.localDescription) {
         await Bridge.sendRemoteSignal({
           type: "offer",
           sdp: hostPeer.localDescription.sdp,
-          candidates: hostGatheredCandidates,
+          candidates: hostGatheredCandidates.slice(),
         });
-      }
-      for (const c of hostGatheredCandidates) {
-        await Bridge.sendRemoteSignal({ type: "candidate", candidate: c });
       }
     }
   } catch (err) {
@@ -200,16 +233,22 @@ export async function handleHostSignal(signal: any): Promise<void> {
 export function stopHostScreenSharing(): void {
   if (hostStream) {
     for (const track of hostStream.getTracks()) {
-      track.stop();
+      try {
+        track.stop();
+      } catch (e) {}
     }
     hostStream = null;
   }
   if (inputChannel) {
-    try { inputChannel.close(); } catch (e) {}
+    try {
+      inputChannel.close();
+    } catch (e) {}
     inputChannel = null;
   }
   if (hostPeer) {
-    try { hostPeer.close(); } catch (e) {}
+    try {
+      hostPeer.close();
+    } catch (e) {}
     hostPeer = null;
   }
   hostGatheredCandidates = [];

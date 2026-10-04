@@ -4,6 +4,7 @@ let supabaseClient = null;
 let realtimeChannel = null;
 let currentConfig = null;
 let dbChangesChannel = null;
+let hasSentInitialPartnerJoin = false;
 
 const SUPABASE_SQL_SETUP = `-- ========================================================
 -- 🍡 MOCHI 24/7 OFFLINE CLOUD STORAGE SETUP
@@ -282,19 +283,22 @@ function initSupabase({
           console.warn("[Supabase Realtime] Presence track warning:", e);
         }
 
-        // Announce presence immediately to partner
-        try {
-          await realtimeChannel.send({
-            type: "broadcast",
-            event: "partner_join",
-            payload: {
-              senderName: userName,
-              senderRole: userRole,
-              timestamp: Date.now(),
-            },
-          });
-        } catch (sendErr) {
-          console.warn("[Supabase Realtime] partner_join broadcast error:", sendErr);
+        // Announce presence once on startup to partner
+        if (!hasSentInitialPartnerJoin) {
+          hasSentInitialPartnerJoin = true;
+          try {
+            await realtimeChannel.send({
+              type: "broadcast",
+              event: "partner_join",
+              payload: {
+                senderName: userName,
+                senderRole: userRole,
+                timestamp: Date.now(),
+              },
+            });
+          } catch (sendErr) {
+            console.warn("[Supabase Realtime] partner_join broadcast error:", sendErr);
+          }
         }
       }
     });
@@ -362,6 +366,7 @@ function disconnectSupabase() {
   dbChangesChannel = null;
   supabaseClient = null;
   currentConfig = null;
+  hasSentInitialPartnerJoin = false;
 }
 
 /**

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, ipcMain, Tray, Menu, nativeImage, shell, dialog, Notification } = require("electron");
+const { app, BrowserWindow, screen, ipcMain, Tray, Menu, nativeImage, shell, dialog, Notification, session, desktopCapturer } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -35,13 +35,18 @@ const {
   startInputInjector,
   injectInput,
   stopInputInjector,
+  getAvailableScreens,
   getPrimaryScreenSource,
+  setHostDisplayBounds,
   createRemoteViewerWindow,
   getRemoteViewerWindow,
   getViewerInitData,
   closeRemoteViewerWindow,
 } = require("./remoteAccess");
 const { checkForUpdates, performUpdate, getLocalVersionInfo } = require("./updater");
+
+// Enable Windows Graphics Capture (WGC) for reliable capture across hybrid/multi-GPU systems
+app.commandLine.appendSwitch("enable-features", "WebRtcAllowWgcScreenCapturer,WebRtcAllowWgcWindowCapturer");
 
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -295,15 +300,16 @@ let activeRemoteRole = null;
 let pendingViewerSignals = [];
 let lastPartnerOnline = false;
 let lastPartnerOnlineNotifyTime = 0;
+let partnerOfflineTimer = null;
 
 function triggerPartnerOnlineNotification(partnerName) {
   const isMe = (activeSettings.userRole || "me") === "me";
   const rawPartner = isMe ? (activeSettings.partnerName || "Ayzil") : (activeSettings.userName || "Badsha");
   const displayName = partnerName || (rawPartner.charAt(0).toUpperCase() + rawPartner.slice(1));
 
-  // Cooldown: prevent duplicate notifications within 15 seconds
+  // Cooldown: prevent duplicate notifications within 3 minutes (180s)
   const now = Date.now();
-  if (now - lastPartnerOnlineNotifyTime < 15000) {
+  if (now - lastPartnerOnlineNotifyTime < 180000) {
     return;
   }
   lastPartnerOnlineNotifyTime = now;
@@ -474,13 +480,18 @@ function startSupabaseSync() {
       }
 
       console.log(`[Supabase Sync] Partner online status: ${partnerOnline}`);
-      if (partnerOnline && !lastPartnerOnline) {
-        triggerPartnerOnlineNotification(partnerUserName);
-      } else if (overlayWin && !overlayWin.isDestroyed()) {
-        overlayWin.webContents.send("partner-presence", { online: partnerOnline, partnerName: partnerUserName, justCameOnline: false });
-      }
-      lastPartnerOnline = partnerOnline;
       if (partnerOnline) {
+        if (partnerOfflineTimer) {
+          clearTimeout(partnerOfflineTimer);
+          partnerOfflineTimer = null;
+        }
+        if (!lastPartnerOnline) {
+          lastPartnerOnline = true;
+          triggerPartnerOnlineNotification(partnerUserName);
+        } else if (overlayWin && !overlayWin.isDestroyed()) {
+          overlayWin.webContents.send("partner-presence", { online: true, partnerName: partnerUserName, justCameOnline: false });
+        }
+
         // Partner is online — request catch-up sync in case messages were sent while asleep
         const history = loadChatHistory();
         const lastChatTime = history.length > 0 ? history[history.length - 1].timestamp : 0;
@@ -488,6 +499,18 @@ function startSupabaseSync() {
           lastChatTimestamp: lastChatTime,
           senderName: currentUserName,
         });
+      } else {
+        // Grace period: Wait 45s before considering partner truly offline to avoid fluttering
+        if (!partnerOfflineTimer && lastPartnerOnline) {
+          partnerOfflineTimer = setTimeout(() => {
+            partnerOfflineTimer = null;
+            lastPartnerOnline = false;
+            console.log("[Supabase Sync] Partner marked offline after grace period.");
+            if (overlayWin && !overlayWin.isDestroyed()) {
+              overlayWin.webContents.send("partner-presence", { online: false, partnerName: partnerUserName, justCameOnline: false });
+            }
+          }, 45000);
+        }
       }
     },
     onSyncRequest: (payload) => {
@@ -557,8 +580,10 @@ function startSupabaseSync() {
       const senderName = (payload?.senderName || "").toLowerCase();
       if (senderName && senderName !== myName) {
         console.log(`[Supabase Sync] Received partner_join announcement from: ${payload?.senderName}`);
-        lastPartnerOnline = true;
-        triggerPartnerOnlineNotification(payload?.senderName || partnerUserName);
+        if (!lastPartnerOnline) {
+          lastPartnerOnline = true;
+          triggerPartnerOnlineNotification(payload?.senderName || partnerUserName);
+        }
       }
     },
     onRemoteAccess: (payload) => {
@@ -1779,6 +1804,9 @@ ipcMain.handle("respond-remote-access", async (_event, accepted, extra) => {
   if (accepted) {
     activeRemoteRole = "host";
     startInputInjector();
+    if (extra?.displayBounds) {
+      setHostDisplayBounds(extra.displayBounds);
+    }
     const primary = screen.getPrimaryDisplay();
     return await broadcastRemoteAccess({
       action: "response",
@@ -1790,6 +1818,7 @@ ipcMain.handle("respond-remote-access", async (_event, accepted, extra) => {
   } else {
     activeRemoteRole = null;
     pendingViewerSignals = [];
+    setHostDisplayBounds(null);
     return await broadcastRemoteAccess({
       action: "response",
       accepted: false,
@@ -1807,7 +1836,12 @@ ipcMain.handle("end-remote-access", async () => {
   pendingViewerSignals = [];
   closeRemoteViewerWindow();
   stopInputInjector();
+  setHostDisplayBounds(null);
   return await broadcastRemoteAccess({ action: "end" });
+});
+
+ipcMain.handle("get-available-screens", async () => {
+  return await getAvailableScreens();
 });
 
 ipcMain.handle("get-primary-screen-source", async () => {
@@ -1864,6 +1898,7 @@ ipcMain.handle("viewer-end-session", async () => {
   pendingViewerSignals = [];
   closeRemoteViewerWindow();
   stopInputInjector();
+  setHostDisplayBounds(null);
   const isMe = (activeSettings.userRole || "me") === "me";
   const rawMe = isMe ? (activeSettings.userName || "Badsha") : (activeSettings.partnerName || "Ayzil");
   const currentUserName = rawMe.charAt(0).toUpperCase() + rawMe.slice(1);
@@ -2876,6 +2911,23 @@ ipcMain.handle("secret-clear", (_event, key) => {
 
 // App Lifecycle
 app.whenReady().then(() => {
+  if (session && session.defaultSession) {
+    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+      // Allow media, display-capture, notifications, etc.
+      callback(true);
+    });
+    session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+      desktopCapturer
+        .getSources({ types: ["screen"] })
+        .then((sources) => {
+          callback({ video: sources[0] || null });
+        })
+        .catch(() => {
+          callback({ video: null });
+        });
+    });
+  }
+
   setupTray();
   createOverlayWindow();
   startSupabaseSync();

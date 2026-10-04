@@ -53,6 +53,11 @@ namespace MochiEye
             if (screenW <= 0) screenW = 1920;
             if (screenH <= 0) screenH = 1080;
 
+            int boundsX = 0;
+            int boundsY = 0;
+            int boundsW = screenW;
+            int boundsH = screenH;
+
             string line;
             while ((line = Console.ReadLine()) != null)
             {
@@ -67,7 +72,20 @@ namespace MochiEye
 
                     switch (cmd)
                     {
-                        // m <x> <y> -> Direct pixel mouse move
+                        // bounds <x> <y> <w> <h> -> Set target monitor bounding box
+                        case "bounds":
+                            if (parts.Length >= 5)
+                            {
+                                boundsX = int.Parse(parts[1], CultureInfo.InvariantCulture);
+                                boundsY = int.Parse(parts[2], CultureInfo.InvariantCulture);
+                                boundsW = int.Parse(parts[3], CultureInfo.InvariantCulture);
+                                boundsH = int.Parse(parts[4], CultureInfo.InvariantCulture);
+                                if (boundsW <= 0) boundsW = screenW;
+                                if (boundsH <= 0) boundsH = screenH;
+                            }
+                            break;
+
+                        // m <x> <y> -> Direct pixel mouse move (virtual desktop coordinates)
                         case "m":
                             if (parts.Length >= 3)
                             {
@@ -77,7 +95,7 @@ namespace MochiEye
                             }
                             break;
 
-                        // mn <normX> <normY> -> Normalized 0.0 - 1.0 mouse move
+                        // mn <normX> <normY> -> Normalized 0.0 - 1.0 mouse move on active monitor
                         case "mn":
                             if (parts.Length >= 3)
                             {
@@ -85,8 +103,8 @@ namespace MochiEye
                                 double ny = double.Parse(parts[2], CultureInfo.InvariantCulture);
                                 nx = Math.Max(0.0, Math.Min(1.0, nx));
                                 ny = Math.Max(0.0, Math.Min(1.0, ny));
-                                int x = (int)Math.Round(nx * screenW);
-                                int y = (int)Math.Round(ny * screenH);
+                                int x = boundsX + (int)Math.Round(nx * boundsW);
+                                int y = boundsY + (int)Math.Round(ny * boundsH);
                                 SetCursorPos(x, y);
                             }
                             break;
@@ -99,7 +117,9 @@ namespace MochiEye
                                 {
                                     double nx = double.Parse(parts[2], CultureInfo.InvariantCulture);
                                     double ny = double.Parse(parts[3], CultureInfo.InvariantCulture);
-                                    SetCursorPos((int)Math.Round(nx * screenW), (int)Math.Round(ny * screenH));
+                                    nx = Math.Max(0.0, Math.Min(1.0, nx));
+                                    ny = Math.Max(0.0, Math.Min(1.0, ny));
+                                    SetCursorPos(boundsX + (int)Math.Round(nx * boundsW), boundsY + (int)Math.Round(ny * boundsH));
                                 }
                                 int btn = int.Parse(parts[1], CultureInfo.InvariantCulture);
                                 if (btn == 1) mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
@@ -116,7 +136,9 @@ namespace MochiEye
                                 {
                                     double nx = double.Parse(parts[2], CultureInfo.InvariantCulture);
                                     double ny = double.Parse(parts[3], CultureInfo.InvariantCulture);
-                                    SetCursorPos((int)Math.Round(nx * screenW), (int)Math.Round(ny * screenH));
+                                    nx = Math.Max(0.0, Math.Min(1.0, nx));
+                                    ny = Math.Max(0.0, Math.Min(1.0, ny));
+                                    SetCursorPos(boundsX + (int)Math.Round(nx * boundsW), boundsY + (int)Math.Round(ny * boundsH));
                                 }
                                 int btn = int.Parse(parts[1], CultureInfo.InvariantCulture);
                                 if (btn == 1) mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
@@ -163,6 +185,10 @@ namespace MochiEye
                             screenH = GetSystemMetrics(SM_CYSCREEN);
                             if (screenW <= 0) screenW = 1920;
                             if (screenH <= 0) screenH = 1080;
+                            boundsX = 0;
+                            boundsY = 0;
+                            boundsW = screenW;
+                            boundsH = screenH;
                             break;
                     }
                 }
