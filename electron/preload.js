@@ -78,6 +78,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getAvailableScreens: () => ipcRenderer.invoke("get-available-screens"),
   getPrimaryScreenSource: () => ipcRenderer.invoke("get-primary-screen-source"),
   injectInput: (cmd) => ipcRenderer.invoke("inject-remote-input", cmd),
+  injectInputFast: (cmd) => ipcRenderer.send("inject-remote-input-fast", cmd),
 
   // GitHub 1-Click Auto-Updater
   checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),

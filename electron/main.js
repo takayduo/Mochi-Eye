@@ -1853,6 +1853,10 @@ ipcMain.handle("inject-remote-input", (_event, cmd) => {
   return true;
 });
 
+ipcMain.on("inject-remote-input-fast", (_event, cmd) => {
+  if (cmd) injectInput(cmd);
+});
+
 // Viewer Window IPC handlers
 ipcMain.handle("viewer-get-partner-info", () => {
   const isMe = (activeSettings.userRole || "me") === "me";
@@ -1883,6 +1887,10 @@ ipcMain.handle("viewer-send-signal", async (_event, signal) => {
 
 ipcMain.handle("viewer-send-input", async (_event, cmd) => {
   return await broadcastRemoteAccess({ action: "input", cmd });
+});
+
+ipcMain.on("viewer-send-input-fast", (_event, cmd) => {
+  if (cmd) broadcastRemoteAccess({ action: "input", cmd });
 });
 
 ipcMain.handle("viewer-toggle-fullscreen", () => {

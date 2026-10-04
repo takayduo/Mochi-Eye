@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld("viewerAPI", {
   getPartnerInfo: () => ipcRenderer.invoke("viewer-get-partner-info"),
   sendSignal: (signal) => ipcRenderer.invoke("viewer-send-signal", signal),
   sendInput: (cmd) => ipcRenderer.invoke("viewer-send-input", cmd),
+  sendInputFast: (cmd) => ipcRenderer.send("viewer-send-input-fast", cmd),
   toggleFullscreen: () => ipcRenderer.invoke("viewer-toggle-fullscreen"),
   endSession: () => ipcRenderer.invoke("viewer-end-session"),
   on: (channel, callback) => {

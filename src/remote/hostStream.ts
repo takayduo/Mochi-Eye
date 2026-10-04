@@ -97,23 +97,37 @@ export async function startHostScreenSharing(targetScreen?: {
       console.log("[HostStream] Peer connection state:", hostPeer?.connectionState);
     };
 
-    // Add local screen video tracks
+    // Add local screen video tracks with low-latency motion hint
     for (const track of hostStream.getTracks()) {
-      hostPeer.addTrack(track, hostStream);
+      if (track.kind === "video") {
+        (track as any).contentHint = "motion";
+      }
+      const sender = hostPeer.addTrack(track, hostStream);
+      try {
+        const params = sender.getParameters();
+        if (params && params.encodings && params.encodings.length > 0) {
+          params.encodings[0].networkPriority = "high";
+          sender.setParameters(params).catch(() => {});
+        }
+      } catch (e) {}
     }
 
-    // Low-latency DataChannel for direct mouse & keyboard events
+    // High-performance unordered DataChannel for real-time mouse & keyboard events (0 retransmits)
     function wireChannel(ch: RTCDataChannel) {
-      ch.onopen = () => console.log("[HostStream] DataChannel is OPEN for input:", ch.label);
+      ch.binaryType = "arraybuffer";
+      ch.onopen = () => console.log("[HostStream] High-speed DataChannel is OPEN for input:", ch.label);
       ch.onmessage = (e) => {
         if (typeof e.data === "string") {
-          void Bridge.injectInput(e.data);
+          Bridge.injectInputFast(e.data);
         }
       };
       ch.onerror = (err) => console.warn("[HostStream] DataChannel error:", err);
     }
 
-    inputChannel = hostPeer.createDataChannel("input", { ordered: true });
+    inputChannel = hostPeer.createDataChannel("input", {
+      ordered: false,
+      maxRetransmits: 0,
+    });
     wireChannel(inputChannel);
 
     hostPeer.ondatachannel = (e) => {

@@ -55,6 +55,7 @@ declare global {
       getAvailableScreens?(): Promise<Array<{ id: string; displayId?: number; name: string; label: string; bounds: { x: number; y: number; width: number; height: number }; width: number; height: number; isPrimary: boolean }>>;
       getPrimaryScreenSource?(): Promise<{ id: string; name: string; width: number; height: number; bounds?: { x: number; y: number; width: number; height: number } } | null>;
       injectInput?(cmd: string): Promise<boolean>;
+      injectInputFast?(cmd: string): void;
 
       checkForUpdates?(): Promise<{
         success: boolean;
@@ -396,6 +397,14 @@ export const Bridge = {
   injectInput: async (cmd: string): Promise<boolean> => {
     if (window.electronAPI?.injectInput) return await window.electronAPI.injectInput(cmd);
     return false;
+  },
+
+  injectInputFast: (cmd: string): void => {
+    if (window.electronAPI?.injectInputFast) {
+      window.electronAPI.injectInputFast(cmd);
+    } else if (window.electronAPI?.injectInput) {
+      void window.electronAPI.injectInput(cmd);
+    }
   },
 
   // ── GitHub 1-Click Auto-Updater ──────────────────────────────────────────
