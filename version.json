@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "commit": "f13bb31dad54ab95c03922d4182f0b5fc238990c",
-  "commitDate": "2026-10-04T19:41:57+05:30",
-  "commitMessage": "feat(presence): notify when partner comes online with chime, emote, and Windows alert"
+  "commit": "1e61f7e9aa2d732ff2cf0e317b12a9bdbaf7b523",
+  "commitDate": "2026-10-04T20:46:03+05:30",
+  "commitMessage": "fix(syntax): add missing closing brace in broadcastSyncResponse in supabase.js"
 }
