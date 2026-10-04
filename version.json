@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "commit": "fc756fe45db63105d56e1a687a1a2523efd1892b",
-  "commitDate": "2026-10-04T23:28:49+05:30",
-  "commitMessage": "fix(remote): fix multi-monitor selection, black screen stream reveal, and eliminate duplicate online pings"
+  "commit": "de3d4074a1ea3ebd2b58d23b410dd59c255e9e29",
+  "commitDate": "2026-10-04T23:40:07+05:30",
+  "commitMessage": "perf(updater): add ELECTRON_RUN_AS_NODE and timeout to make updater bundle build instant"
 }
