@@ -486,6 +486,8 @@ async function broadcastSyncResponse(payload) {
     return res === "ok";
   } catch (err) {
     console.warn("[Supabase Realtime] Broadcast sync_response error:", err);
+    return false;
+  }
 }
 
 /**
