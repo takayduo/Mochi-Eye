@@ -619,22 +619,6 @@
             stream.addTrack(e.track);
           }
 
-          // Zero jitter buffer playout delay for instant real-time rendering
-          try {
-            const receivers = peer.getReceivers ? peer.getReceivers() : [];
-            for (const r of receivers) {
-              if (r.track && r.track.kind === "video") {
-                if ("jitterBufferTarget" in r) {
-                  (r as any).jitterBufferTarget = 0;
-                } else if ("playoutDelayHint" in r) {
-                  (r as any).playoutDelayHint = 0;
-                }
-              }
-            }
-          } catch (jitterErr) {
-            console.warn("[RemoteViewer] Jitter buffer optimization skipped:", jitterErr);
-          }
-
           video.play().catch((err) => {
             console.warn("[RemoteViewer] video.play() error:", err);
           });

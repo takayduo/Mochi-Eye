@@ -59,7 +59,6 @@ export async function startHostScreenSharing(targetScreen?: {
             chromeMediaSourceId: source.id,
             maxWidth: Math.max(screenWidth, 1920),
             maxHeight: Math.max(screenHeight, 1080),
-            minFrameRate: 30,
             maxFrameRate: 60,
           },
         },
@@ -108,32 +107,9 @@ export async function startHostScreenSharing(targetScreen?: {
         const params = sender.getParameters();
         if (params && params.encodings && params.encodings.length > 0) {
           params.encodings[0].networkPriority = "high";
-          (params.encodings[0] as any).priority = "high";
-          params.encodings[0].maxBitrate = 12000000;
           sender.setParameters(params).catch(() => {});
         }
       } catch (e) {}
-    }
-
-    // Prioritize hardware-accelerated H.264 video codec if available for sub-frame latency
-    try {
-      if (typeof RTCRtpSender.getCapabilities === "function") {
-        const videoCaps = RTCRtpSender.getCapabilities("video");
-        if (videoCaps && videoCaps.codecs) {
-          const h264Codecs = videoCaps.codecs.filter((c) => c.mimeType.toLowerCase() === "video/h264");
-          const otherCodecs = videoCaps.codecs.filter((c) => c.mimeType.toLowerCase() !== "video/h264");
-          if (h264Codecs.length > 0) {
-            for (const transceiver of hostPeer.getTransceivers()) {
-              if (transceiver.sender && transceiver.sender.track?.kind === "video" && (transceiver as any).setCodecPreferences) {
-                (transceiver as any).setCodecPreferences([...h264Codecs, ...otherCodecs]);
-                console.log("[HostStream] Prioritized H.264 hardware encoding for minimal latency");
-              }
-            }
-          }
-        }
-      }
-    } catch (codecErr) {
-      console.warn("[HostStream] Codec preference setup skipped:", codecErr);
     }
 
     // High-performance unordered DataChannel for real-time mouse & keyboard events (0 retransmits)
