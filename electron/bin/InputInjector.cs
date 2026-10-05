@@ -44,6 +44,7 @@ namespace MochiEye
         static void Main(string[] args)
         {
             try { SetProcessDPIAware(); } catch { }
+            try { System.Diagnostics.Process.GetCurrentProcess().PriorityClass = System.Diagnostics.ProcessPriorityClass.High; } catch { }
             Console.OutputEncoding = Encoding.UTF8;
             Console.WriteLine("MOCHI_INJECTOR_READY");
             Console.Out.Flush();
